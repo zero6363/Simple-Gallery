@@ -680,10 +680,12 @@ class MediaAdapter(
             }
 
             hdrBadge?.beGone()
-            if (medium.isImage()) {
+            if (medium.isImage() || medium.isVideo()) {
                 if (HdrHelper.getCachedIsHdr(medium.path)) {
                     hdrBadge?.beVisible()
-                    positionHdrBadge(bindItem(view, medium))
+                    if (medium.isImage()) {
+                        positionHdrBadge(bindItem(view, medium))
+                    }
                 } else {
                     // detection requires reading some bytes from the file, do it lazily and only once per path
                     HdrHelper.detectHdrAsync(activity.applicationContext, medium.path) { isHdr ->
@@ -691,7 +693,11 @@ class MediaAdapter(
                             if (isHdr && mediumName.tag == medium.path) {
                                 val binding = bindItem(view, medium)
                                 binding.hdrBadge?.beVisible()
-                                positionHdrBadge(binding)
+                                // video layouts already place the badge in their top left row,
+                                // only photos may need it shifted next to the live photo badge
+                                if (medium.isImage()) {
+                                    positionHdrBadge(binding)
+                                }
                             }
                         }
                     }

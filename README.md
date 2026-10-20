@@ -6,7 +6,7 @@
 
 ## 本分支新增功能
 
-### 1. 完整的 HDR 支持
+### 1. 完整的 HDR 支持（照片与视频）
 
 - 自动识别主流 HDR 静态图标准：
   - Ultra HDR JPEG（Android 14 引入的增益图格式）
@@ -15,7 +15,8 @@
   - HDR10（SMPTE ST 2084 / PQ）与 HLG
   - Dolby Vision（`dvcC` / `dvvC`）
   - HDR PNG（`cICP` 块中的 PQ / HLG 传输特性）
-- 在网格、列表和大图界面显示 **HDR** 徽标。
+- 自动识别 HDR 视频：MP4/MOV/3GP 的 `colr`（PQ / HLG）、`mdcv` 与 Dolby Vision（`dvcC` / `dvvC`），以及 Matroska/WebM 的 TransferCharacteristics
+- 在网格、列表和大图播放界面显示 **HDR** 徽标，HDR 视频同样标识。
 - Android 14+ 上，带增益图的照片通过系统 gain map 管线以**真实 HDR** 显示；同时适配需要窗口 HDR 色彩模式的 ROM（如 HyperOS）。
 - 检测在后台线程执行并缓存结果，滚动大文件夹时不会阻塞界面。
 
@@ -75,7 +76,7 @@ Simple Gallery 2 is a community-maintained fork of [Simple Gallery Pro](https://
 
 ## Fork highlights
 
-- **Full HDR support** — detects Ultra HDR JPEG, ISO 21496-1 gain maps (HEIF/AVIF/JPEG), Apple HDR gain maps, HDR10, HLG, Dolby Vision and HDR PNG. Shows an HDR badge and renders gain-map photos in true HDR on Android 14+, including ROMs that require the window HDR colour mode (e.g. HyperOS).
+- **Full HDR support** — detects Ultra HDR JPEG, ISO 21496-1 gain maps (HEIF/AVIF/JPEG), Apple HDR gain maps, HDR10, HLG, Dolby Vision, HDR PNG and HDR videos (MP4/MOV/3GP colour metadata and Dolby Vision, Matroska/WebM TransferCharacteristics). Shows an HDR badge in grids, lists and the fullscreen viewer, and renders gain-map photos in true HDR on Android 14+, including ROMs that require the window HDR colour mode (e.g. HyperOS).
 - **Live photos** — plays motion photos from Google (legacy MVIMG and current MotionPhoto), Samsung SEFT and paired-video formats, with an optional auto-play setting. Extracted videos are cached and pruned automatically.
 - **System recycle bin (Android 11+)** — delete into the MediaStore trash, browse it, restore or permanently delete items, and toggle the behaviour in Settings.
 - **Millisecond slideshow intervals**, with automatic migration of the old seconds-based setting.

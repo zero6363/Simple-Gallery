@@ -233,6 +233,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
         }
 
         setupVideoDuration()
+        checkIfHdrVideo()
         if (mStoredRememberLastVideoPosition) {
             restoreLastVideoSavedPosition()
         }
@@ -501,6 +502,30 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
         }
     }
 
+    private fun checkIfHdrVideo() {
+        val appContext = context?.applicationContext ?: return
+        ensureBackgroundThread {
+            val isHdr = HdrHelper.isHdrVideo(appContext, mMedium.path)
+            activity?.runOnUiThread {
+                if (isAdded) {
+                    binding.videoHdrBadge.beVisibleIf(isHdr)
+                    updateHdrBadgePosition()
+                    binding.videoHdrBadge.alpha = if (mIsFullscreen) 0f else 1f
+                }
+            }
+        }
+    }
+
+    // the pager toolbar is transparent and overlays the content, push the HDR badge below it
+    private fun updateHdrBadgePosition() {
+        val topMargin = requireContext().statusBarHeight + requireContext().actionBarHeight +
+            resources.getDimension(com.simplemobiletools.commons.R.dimen.medium_margin).toInt()
+        (binding.videoHdrBadge.layoutParams as RelativeLayout.LayoutParams).apply {
+            this.topMargin = topMargin
+        }
+        binding.videoHdrBadge.layoutParams = binding.videoHdrBadge.layoutParams
+    }
+
     private fun openPanorama() {
         Intent(context, PanoramaVideoActivity::class.java).apply {
             putExtra(PATH, mMedium.path)
@@ -511,6 +536,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
     override fun fullscreenToggled(isFullscreen: Boolean) {
         mIsFullscreen = isFullscreen
         val newAlpha = if (isFullscreen) 0f else 1f
+        binding.videoHdrBadge.animate().alpha(newAlpha).start()
         if (!mIsFullscreen) {
             mTimeHolder.beVisible()
         }

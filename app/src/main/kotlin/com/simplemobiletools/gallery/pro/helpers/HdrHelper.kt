@@ -14,13 +14,16 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * Detects HDR still images. Covered standards:
+ * Detects HDR still images and videos. Covered standards:
  *
  *  - Ultra HDR JPEG (the gain map format introduced with Android 14): XMP marker "hdrgm:GainMap"
  *  - ISO 21496-1 gain maps in HEIF/AVIF containers: top level "tmap" box
  *  - HDR10 (SMPTE ST 2084 / PQ) and HLG in HEIF/AVIF: "colr" box with transfer characteristics 16 / 18
  *  - Dolby Vision in HEIF/AVIF: "dvcC" / "dvvC" item property
  *  - HDR PNG: "cICP" chunk with PQ / HLG transfer characteristics
+ *  - HDR videos in MP4/MOV/3GP: "colr" (nclx transfer 16 / 18), "mdcv" or Dolby Vision
+ *    ("dvcC" / "dvvC") boxes inside the video sample entry
+ *  - HDR videos in Matroska/WebM: "Colour" element with PQ / HLG TransferCharacteristics
  *
  * Images with an explicit gain map ([HdrType.GAIN_MAP]) can be rendered in HDR through the
  * platform gain map pipeline on Android 14+, the rest is flagged with a badge only.
@@ -31,6 +34,34 @@ object HdrHelper {
 
     // the XMP packet and the PNG header chunks both sit near the beginning of the file
     private val METADATA_SCAN_BYTES = 1024 * 1024
+
+    // Matroska/WebM keeps the track description (and its Colour element) near the file start,
+    // scanning a few megabytes covers files with large attachments without touching the clusters
+    private val MATROSKA_METADATA_SCAN_BYTES = 4L * 1024 * 1024
+
+    // an EBML "Colour" -> "TransferCharacteristics" element (id 0x55BA) with a 1 byte value:
+    // 16 is SMPTE ST 2084 (HDR10), 18 is BT.2100 HLG
+    private val MATROSKA_HDR_TRANSFER_PATTERNS = listOf(
+        byteArrayOf(0x55, 0xBA.toByte(), 0x81.toByte(), 0x10),
+        byteArrayOf(0x55, 0xBA.toByte(), 0x81.toByte(), 0x12),
+        byteArrayOf(0x55, 0xBA.toByte(), 0x82.toByte(), 0x00, 0x10),
+        byteArrayOf(0x55, 0xBA.toByte(), 0x82.toByte(), 0x00, 0x12)
+    )
+
+    private val MATROSKA_DOVI_MARKERS = listOf("dvcC", "dvvC").map { it.toByteArray(Charsets.ISO_8859_1) }
+
+    // MP4/MOV boxes are nested fairly deep: moov > trak > mdia > minf > stbl > stsd > sample entry > colr
+    private val MAX_ISO_BMFF_DEPTH = 12
+
+    // VisualSampleEntry fixed fields: 6 reserved + 2 data reference index + 16 pre_defined/reserved,
+    // 2 width + 2 height, 4 + 4 resolution, 4 reserved, 2 frame count, 32 compressor name,
+    // 2 depth + 2 pre_defined
+    private val VISUAL_SAMPLE_ENTRY_HEADER_SIZE = 78L
+
+    private val VISUAL_SAMPLE_ENTRY_TYPES = setOf(
+        "avc1", "avc2", "avc3", "avc4", "hvc1", "hev1", "dvh1", "dvhe", "dva1", "dvav",
+        "av01", "vp08", "vp09", "mp4v", "encv", "s263", "h263", "jpeg", "mjpa", "mjpb"
+    )
 
     // any XMP "GainMap" entry counts, writers use an attribute, an element or an rdf:parseType container.
     // a plain literal search instead of a regex: prefixes like "hdrgm" sit right before the colon,
@@ -99,6 +130,9 @@ object HdrHelper {
     /** True for images whose HDR data is a gain map, those can be rendered in HDR on Android 14+. */
     fun isGainMapImage(context: Context, path: String) = getHdrType(context, path) == HdrType.GAIN_MAP
 
+    /** True for HDR videos (MP4/MOV/3GP, Matroska/WebM), flagged with a badge. */
+    fun isHdrVideo(context: Context, path: String) = getHdrType(context, path) != HdrType.NONE
+
     private fun getHdrType(context: Context, path: String): HdrType {
         // content URIs can point to different files over time, only cache real paths
         if (path.startsWith("content://")) {
@@ -141,6 +175,7 @@ object HdrHelper {
                 }
             }
             isIsoBmff(head) -> isHdrIsoBmff(channel)
+            isMatroska(head) -> isHdrMatroska(channel)
             isPng(head) -> isHdrPng(head)
             else -> HdrType.NONE
         }
@@ -267,6 +302,9 @@ object HdrHelper {
     private fun isPng(head: ByteArray) =
         head.size >= 8 && head[0] == 0x89.toByte() && head[1] == 0x50.toByte() && head[2] == 0x4E.toByte() && head[3] == 0x47.toByte()
 
+    private fun isMatroska(head: ByteArray) =
+        head.size >= 4 && head[0] == 0x1A.toByte() && head[1] == 0x45.toByte() && head[2] == 0xDF.toByte() && head[3] == 0xA3.toByte()
+
     private fun isIsoBmff(head: ByteArray) =
         head.size >= 12 && String(head, 4, 4, Charsets.ISO_8859_1) == "ftyp"
 
@@ -277,7 +315,7 @@ object HdrHelper {
     }
 
     private fun findHdrBox(channel: FileChannel, start: Long, end: Long, depth: Int): HdrType {
-        if (depth > 3) {
+        if (depth > MAX_ISO_BMFF_DEPTH) {
             return HdrType.NONE
         }
 
@@ -312,10 +350,17 @@ object HdrHelper {
             val boxResult = when (type) {
                 "tmap" -> HdrType.GAIN_MAP
                 "dvcC", "dvvC" -> HdrType.HDR
+                // mastering display colour volume, present in HDR10 tracks even when a writer
+                // omitted the "colr" box
+                "mdcv" -> HdrType.HDR
                 // Apple writes its gain map as an auxiliary image, referenced by an "auxC" URN, not as a "tmap" box
                 "auxC" -> if (isGainMapAuxiliary(readRegion(channel, contentStart, contentLength))) HdrType.GAIN_MAP else HdrType.NONE
                 "meta" -> findHdrBox(channel, contentStart + 4, offset + boxSize, depth + 1)   // meta is a full box, skip version and flags
                 "iprp", "ipco" -> findHdrBox(channel, contentStart, offset + boxSize, depth + 1)
+                // MP4/MOV/3GP video track hierarchy, down to the sample descriptions
+                "moov", "trak", "mdia", "minf", "stbl", "edts", "dinf", "mvex", "moof", "traf" ->
+                    findHdrBox(channel, contentStart, offset + boxSize, depth + 1)
+                "stsd" -> findHdrInSampleDescriptions(channel, contentStart, offset + boxSize, depth + 1)
                 "colr" -> if (isHdrColourBox(readRegion(channel, contentStart, contentLength))) HdrType.HDR else HdrType.NONE
                 else -> HdrType.NONE
             }
@@ -329,6 +374,85 @@ object HdrHelper {
             offset += boxSize
         }
         return found
+    }
+
+    // stsd is a full box followed by the sample descriptions. Video ones are VisualSampleEntry
+    // boxes with 78 bytes of fixed fields before their child boxes, where HDR metadata lives.
+    private fun findHdrInSampleDescriptions(channel: FileChannel, start: Long, end: Long, depth: Int): HdrType {
+        val header = readRegion(channel, start, 8L)
+        if (header.size < 8) {
+            return HdrType.NONE
+        }
+
+        val entryCount = readUnsignedInt32(header, 4)
+        var offset = start + 8
+        var found = HdrType.NONE
+        var index = 0L
+        while (index < entryCount && offset + 8 <= end) {
+            val entryHeader = readRegion(channel, offset, 8L)
+            if (entryHeader.size < 8) {
+                return found
+            }
+
+            var entrySize = readUnsignedInt32(entryHeader, 0)
+            val entryType = String(entryHeader, 4, 4, Charsets.ISO_8859_1)
+            var headerSize = 8L
+            if (entrySize == 1L) {
+                val largeSize = readRegion(channel, offset + 8, 8L)
+                if (largeSize.size < 8) {
+                    return found
+                }
+                entrySize = (readUnsignedInt32(largeSize, 0) shl 32) or readUnsignedInt32(largeSize, 4)
+                headerSize = 16L
+            } else if (entrySize == 0L) {
+                entrySize = end - offset
+            }
+
+            if (entrySize < headerSize || offset + entrySize > end) {
+                return found
+            }
+
+            if (entryType in VISUAL_SAMPLE_ENTRY_TYPES) {
+                val childrenStart = offset + headerSize + VISUAL_SAMPLE_ENTRY_HEADER_SIZE
+                if (childrenStart + 8 <= offset + entrySize) {
+                    val result = findHdrBox(channel, childrenStart, offset + entrySize, depth + 1)
+                    if (result == HdrType.GAIN_MAP) {
+                        return HdrType.GAIN_MAP
+                    } else if (result == HdrType.HDR) {
+                        found = HdrType.HDR
+                    }
+                }
+            }
+
+            offset += entrySize
+            index++
+        }
+        return found
+    }
+
+    // Matroska/WebM: look for the Colour -> TransferCharacteristics element in the track metadata
+    private fun isHdrMatroska(channel: FileChannel): HdrType {
+        val limit = minOf(channel.size(), MATROSKA_METADATA_SCAN_BYTES)
+        if (limit <= 0) {
+            return HdrType.NONE
+        }
+
+        val chunkSize = 256 * 1024
+        var carry = ByteArray(0)
+        var offset = 0L
+        while (offset < limit) {
+            val length = minOf(chunkSize.toLong(), limit - offset).toInt()
+            val haystack = carry + readRegion(channel, offset, length.toLong())
+            if (MATROSKA_HDR_TRANSFER_PATTERNS.any { haystack.indexOf(it) >= 0 } ||
+                MATROSKA_DOVI_MARKERS.any { haystack.indexOf(it) >= 0 }
+            ) {
+                return HdrType.HDR
+            }
+
+            carry = if (haystack.size > 8) haystack.copyOfRange(haystack.size - 8, haystack.size) else haystack
+            offset += length
+        }
+        return HdrType.NONE
     }
 
     // the auxC payload holds the auxiliary image URN, e.g. Apple's

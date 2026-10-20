@@ -4,6 +4,12 @@ Changelog
 本分支更新
 ----------
 
+### 6.28.27-fork.2 *(2026-10-20)*
+
+ * 新增 HDR 视频识别：支持 MP4/MOV/3GP 的 `colr`（PQ / HLG）、`mdcv` 与 Dolby Vision（`dvcC` / `dvvC`）元数据，以及 Matroska/WebM 的 TransferCharacteristics
+ * 视频缩略图和列表左上角显示 **HDR** 徽标，大图播放界面也会同步标识
+ * 优化视频布局，HDR 徽标、播放图标与时长自动横向排列，互不遮挡
+
 ### 6.28.26-fork.1 *(2026-10-20)*
 
  * 新增完整 HDR 支持：可识别 Ultra HDR、ISO 21496-1 增益图、Apple HDR 增益图、HDR10、HLG、Dolby Vision 与 HDR PNG，网格/列表/大图显示 HDR 徽标，Android 14+ 可真实 HDR 渲染

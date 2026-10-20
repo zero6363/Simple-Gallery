@@ -66,6 +66,23 @@
         android:visibility="gone"
         tools:text="My video\nAnother line" />
 
+    <TextView
+        android:id="@+id/video_hdr_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:layout_marginStart="@dimen/activity_margin"
+        android:background="@drawable/black_rounded_background"
+        android:paddingLeft="@dimen/medium_margin"
+        android:paddingTop="@dimen/small_margin"
+        android:paddingRight="@dimen/medium_margin"
+        android:paddingBottom="@dimen/small_margin"
+        android:text="HDR"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/smaller_text_size"
+        android:visibility="gone" />
+
     <include
         android:id="@+id/bottom_video_time_holder"
         layout="@layout/bottom_video_time_holder" />

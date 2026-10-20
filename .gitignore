@@ -5,6 +5,7 @@
 /.idea/
 .DS_Store
 /build
+/.tool/
 /captures
 keystore.jks
 keystore.properties

@@ -1,0 +1,3 @@
+• HDR video detection: MP4/MOV/3GP colour metadata, Dolby Vision and Matroska/WebM HDR
+• HDR badge on video thumbnails, lists and the fullscreen player
+• Video badge row keeps HDR, play icon and duration from overlapping
