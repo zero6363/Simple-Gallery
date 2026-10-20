@@ -1,7 +1,5 @@
 # 简单图库2 / Simple Gallery 2
 
-<img alt="Logo" src="graphics/icon.png" width="120" />
-
 简单图库2 是基于 [Simple Gallery Pro](https://github.com/SimpleMobileTools/Simple-Gallery)（GPLv3）的社区维护分支，在保留原版浏览、管理、编辑、隐藏相册等全部功能的基础上，补齐了现代手机照片的显示与播放能力。
 
 包名为 `com.simplemobiletools.gallery2`，可以与原版 Simple Gallery 同时安装。
@@ -43,15 +41,7 @@
 - 幻灯片播放间隔支持毫秒级设置（旧版以秒为单位的设置会自动迁移）。
 - 应用更名为「简单图库2 / Simple Gallery 2」，避免与原版混淆。
 
-## 截图
 
-<div style="display:flex;">
-<img alt="App image" src="fastlane/metadata/android/en-US/images/phoneScreenshots/1_en-US.jpeg" width="30%">
-<img alt="App image" src="fastlane/metadata/android/en-US/images/phoneScreenshots/2_en-US.jpeg" width="30%">
-<img alt="App image" src="fastlane/metadata/android/en-US/images/phoneScreenshots/3_en-US.jpeg" width="30%">
-</div>
-
-> 商店截图仅保留英文（en-US / en-GB）与中文（zh-CN / zh-HK / zh-TW）本地化资源；中文截图尚未补充，目前会回退使用英文截图。
 
 ## 下载
 
