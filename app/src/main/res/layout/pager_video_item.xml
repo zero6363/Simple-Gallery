@@ -16,11 +16,25 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <TextureView
-            android:id="@+id/video_surface"
+        <FrameLayout
+            android:id="@+id/video_surface_container"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_centerInParent="true" />
+            android:layout_centerInParent="true">
+
+            <TextureView
+                android:id="@+id/video_surface"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- HDR video needs a SurfaceView, a TextureView forces the GPU compositor and loses HDR -->
+            <SurfaceView
+                android:id="@+id/video_hdr_surface"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+
+        </FrameLayout>
 
     </com.alexvasilkov.gestures.GestureFrameLayout>
 

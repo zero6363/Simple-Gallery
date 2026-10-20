@@ -1,14 +1,16 @@
 package com.simplemobiletools.gallery.pro.fragments
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Point
-import android.graphics.SurfaceTexture
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.util.DisplayMetrics
 import android.view.*
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.SeekBar
@@ -41,7 +43,7 @@ import java.io.File
 import java.io.FileInputStream
 
 @UnstableApi
-class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, SeekBar.OnSeekBarChangeListener {
+class VideoFragment : ViewPagerFragment(), SeekBar.OnSeekBarChangeListener {
     private val PROGRESS = "progress"
 
     private var mIsFullscreen = false
@@ -58,6 +60,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
     private var mDuration = 0
     private var mPositionWhenInit = 0
     private var mPositionAtPause = 0L
+    private var mIsHdrVideo = false
+    private var mIsHdrColorModeActive = false
     var mIsPlaying = false
 
     private var mExoPlayer: ExoPlayer? = null
@@ -78,6 +82,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
     private lateinit var mMedium: Medium
     private lateinit var mConfig: Config
     private lateinit var mTextureView: TextureView
+    private lateinit var mHdrSurfaceView: SurfaceView
+    private lateinit var mVideoSurfaceContainer: FrameLayout
     private lateinit var mCurrTimeView: TextView
     private lateinit var mPlayPauseButton: ImageView
     private lateinit var mSeekBar: SeekBar
@@ -120,7 +126,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
             mBrightnessSideScroll = videoBrightnessController
             mVolumeSideScroll = videoVolumeController
             mTextureView = videoSurface
-            mTextureView.surfaceTextureListener = this@VideoFragment
+            mHdrSurfaceView = videoHdrSurface
+            mVideoSurfaceContainer = videoSurfaceContainer
 
             val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
@@ -224,7 +231,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
                     doSkip(true)
                 })
 
-                videoSurface.onGlobalLayout {
+                videoSurfaceContainer.onGlobalLayout {
                     if (mIsFragmentVisible && mConfig.autoplayVideos && !mConfig.openVideosOnSeparateScreen) {
                         playVideo()
                     }
@@ -246,8 +253,11 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
         mConfig = requireContext().config      // make sure we get a new config, in case the user changed something in the app settings
         requireActivity().updateTextColors(binding.videoHolder)
         val allowVideoGestures = mConfig.allowVideoGestures
-        mTextureView.beGoneIf(mConfig.openVideosOnSeparateScreen || mIsPanorama)
-        binding.videoSurfaceFrame.beGoneIf(mTextureView.isGone())
+        updateVideoSurfaceVisibility()
+        if (mIsFragmentVisible && requiresHdrColorMode()) {
+            // another page or the system may have reset the display mode while we were away
+            setWindowHdrColorMode(true)
+        }
 
         mVolumeSideScroll.beVisibleIf(allowVideoGestures && !mIsPanorama)
         mBrightnessSideScroll.beVisibleIf(allowVideoGestures && !mIsPanorama)
@@ -263,6 +273,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
         pauseVideo()
         if (mStoredRememberLastVideoPosition && mIsFragmentVisible && mWasVideoStarted) {
             saveVideoProgress()
+        }
+        if (mIsHdrColorModeActive) {
+            setWindowHdrColorMode(false)
         }
     }
 
@@ -280,6 +293,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
         }
 
         mIsFragmentVisible = menuVisible
+        if (requiresHdrColorMode() || mIsHdrColorModeActive) {
+            setWindowHdrColorMode(menuVisible && requiresHdrColorMode())
+        }
         if (mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.openVideosOnSeparateScreen) {
             playVideo()
         }
@@ -395,8 +411,11 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
                 )
                 prepare()
 
-                if (mTextureView.surfaceTexture != null) {
-                    setVideoSurface(Surface(mTextureView.surfaceTexture))
+                // SurfaceView is required for HDR output; TextureView keeps pinch zooming working for SDR
+                if (mIsHdrVideo) {
+                    setVideoSurfaceView(mHdrSurfaceView)
+                } else {
+                    setVideoTextureView(mTextureView)
                 }
 
                 initListeners()
@@ -508,13 +527,77 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
             val isHdr = HdrHelper.isHdrVideo(appContext, mMedium.path)
             activity?.runOnUiThread {
                 if (isAdded) {
+                    val wasHdr = mIsHdrVideo
+                    mIsHdrVideo = isHdr
                     binding.videoHdrBadge.beVisibleIf(isHdr)
                     updateHdrBadgePosition()
                     binding.videoHdrBadge.alpha = if (mIsFullscreen) 0f else 1f
+                    updateVideoSurfaceVisibility()
+                    if (wasHdr != isHdr) {
+                        updateVideoSurface()
+                    }
+                    if (mIsFragmentVisible && requiresHdrColorMode()) {
+                        setWindowHdrColorMode(true)
+                    } else if (wasHdr) {
+                        setWindowHdrColorMode(false)
+                    }
                 }
             }
         }
     }
+
+    private fun updateVideoSurface() {
+        val player = mExoPlayer ?: return
+        if (mIsHdrVideo) {
+            player.setVideoSurfaceView(mHdrSurfaceView)
+        } else {
+            player.setVideoTextureView(mTextureView)
+        }
+    }
+
+    private fun updateVideoSurfaceVisibility() {
+        val hideVideo = mConfig.openVideosOnSeparateScreen || mIsPanorama
+        mHdrSurfaceView.beVisibleIf(!hideVideo && mIsHdrVideo)
+        mTextureView.beVisibleIf(!hideVideo && !mIsHdrVideo)
+        binding.videoSurfaceFrame.beVisibleIf(!hideVideo)
+        // a SurfaceView is a separate layer and does not follow the gesture view's canvas matrix,
+        // pinch zooming would scale the view hierarchy but not the video itself
+        binding.videoSurfaceFrame.controller.settings.isZoomEnabled = !hideVideo && !mIsHdrVideo
+        updateHdrSurfaceOffset()
+    }
+
+    // the gesture controller centers the TextureView through its canvas matrix, which a SurfaceView
+    // ignores, so offset the HDR surface manually to the same place
+    private fun updateHdrSurfaceOffset() {
+        if (!::mHdrSurfaceView.isInitialized) {
+            return
+        }
+        val frame = binding.videoSurfaceFrame
+        val container = mVideoSurfaceContainer
+        if (frame.width == 0 || frame.height == 0 || container.width == 0 || container.height == 0) {
+            return
+        }
+        mHdrSurfaceView.translationX = (frame.width - container.width) / 2f
+        mHdrSurfaceView.translationY = (frame.height - container.height) / 2f
+    }
+
+    // HDR surface output is only composited in HDR when the window asks for it, some ROMs
+    // (e.g. HyperOS) otherwise keep tone mapping the video down to SDR
+    private fun setWindowHdrColorMode(hdr: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        if (!hdr && !mIsHdrColorModeActive) {
+            return
+        }
+        activity?.window?.colorMode = if (hdr) ActivityInfo.COLOR_MODE_HDR else ActivityInfo.COLOR_MODE_DEFAULT
+        mIsHdrColorModeActive = hdr
+    }
+
+    fun isHdrVideo() = mIsHdrVideo
+
+    fun requiresHdrColorMode() = mIsHdrVideo && !mIsPanorama &&
+        (!::mConfig.isInitialized || !mConfig.openVideosOnSeparateScreen)
 
     // the pager toolbar is transparent and overlays the content, push the HDR badge below it
     private fun updateHdrBadgePosition() {
@@ -801,16 +884,6 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
         mExoPlayer = null
     }
 
-    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-
-    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-
-    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = false
-
-    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        mExoPlayer?.setVideoSurface(Surface(mTextureView.surfaceTexture))
-    }
-
     private fun setVideoSize() {
         if (activity == null || mConfig.openVideosOnSeparateScreen) {
             return
@@ -828,7 +901,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
 
         val screenProportion = screenWidth.toFloat() / screenHeight.toFloat()
 
-        mTextureView.layoutParams.apply {
+        mVideoSurfaceContainer.layoutParams.apply {
             if (videoProportion > screenProportion) {
                 width = screenWidth
                 height = (screenWidth.toFloat() / videoProportion).toInt()
@@ -836,7 +909,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener, S
                 width = (videoProportion * screenHeight.toFloat()).toInt()
                 height = screenHeight
             }
-            mTextureView.layoutParams = this
+            mVideoSurfaceContainer.layoutParams = this
         }
+        mVideoSurfaceContainer.post { updateHdrSurfaceOffset() }
     }
 }

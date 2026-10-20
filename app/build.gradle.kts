@@ -11,11 +11,26 @@ plugins {
     alias(libs.plugins.imgly).apply(false)
 }
 
+// Fixed release signing lives outside the repository, so no password is ever committed.
+// Override the directory with ANDROID_SIGNING_DIR if the SDK is installed elsewhere.
+val sdkSigningDir: File = file(System.getenv("ANDROID_SIGNING_DIR") ?: "D:/code/sdk/signing")
+val sdkKeystoreFile: File = sdkSigningDir.resolve("android-release.keystore")
+val sdkSigningPropertiesFile: File = sdkSigningDir.resolve("signing.properties")
+val sdkSigningProperties = Properties()
+var useSdkSigning = false
+if (sdkKeystoreFile.isFile && sdkSigningPropertiesFile.isFile) {
+    sdkSigningPropertiesFile.inputStream().use { sdkSigningProperties.load(it) }
+    useSdkSigning = listOf("storepass", "keypass", "alias").all { !sdkSigningProperties.getProperty(it).isNullOrBlank() }
+}
+
+// legacy/local fallback for machines without the shared SDK signing directory
 val keystorePropertiesFile: File = rootProject.file("keystore.properties")
 val keystoreProperties = Properties()
-if (keystorePropertiesFile.exists()) {
+if (!useSdkSigning && keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
+val useKeystoreProperties = !useSdkSigning && keystorePropertiesFile.exists()
+val hasReleaseSigning = useSdkSigning || useKeystoreProperties
 
 android {
     compileSdk = project.libs.versions.app.build.compileSDKVersion.get().toInt()
@@ -33,12 +48,19 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (hasReleaseSigning) {
             register("release") {
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
+                if (useSdkSigning) {
+                    storeFile = sdkKeystoreFile
+                    storePassword = sdkSigningProperties.getProperty("storepass")
+                    keyAlias = sdkSigningProperties.getProperty("alias")
+                    keyPassword = sdkSigningProperties.getProperty("keypass")
+                } else {
+                    keyAlias = keystoreProperties.getProperty("keyAlias")
+                    keyPassword = keystoreProperties.getProperty("keyPassword")
+                    storeFile = file(keystoreProperties.getProperty("storeFile"))
+                    storePassword = keystoreProperties.getProperty("storePassword")
+                }
             }
         }
     }
@@ -53,7 +75,7 @@ android {
             // we cannot change the original package name, else PhotoEditorSDK won't work
             //applicationIdSuffix = ".debug"
             // sign debug builds with the same key as release, so both variants can install over each other
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
@@ -63,7 +85,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }

@@ -6,13 +6,14 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Point
-import android.graphics.SurfaceTexture
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.util.DisplayMetrics
 import android.view.*
+import android.widget.FrameLayout
 import android.widget.RelativeLayout
 import android.widget.SeekBar
 import androidx.media3.common.*
@@ -26,16 +27,19 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.simplemobiletools.commons.extensions.*
+import com.simplemobiletools.commons.helpers.ensureBackgroundThread
 import com.simplemobiletools.gallery.pro.R
 import com.simplemobiletools.gallery.pro.databinding.ActivityVideoPlayerBinding
 import com.simplemobiletools.gallery.pro.extensions.*
 import com.simplemobiletools.gallery.pro.helpers.*
 
 @UnstableApi
-open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListener, TextureView.SurfaceTextureListener {
+open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListener {
     private val PLAY_WHEN_READY_DRAG_DELAY = 100L
 
     private var mIsFullscreen = false
+    private var mIsHdrVideo = false
+    private var mIsHdrColorModeActive = false
     private var mIsPlaying = false
     private var mWasVideoStarted = false
     private var mIsDragged = false
@@ -58,6 +62,9 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
 
     private var mIgnoreCloseDown = false
 
+    private lateinit var mHdrSurfaceView: SurfaceView
+    private lateinit var mVideoSurfaceContainer: FrameLayout
+
     private val binding by viewBinding(ActivityVideoPlayerBinding::inflate)
 
     public override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,6 +80,12 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
     override fun onResume() {
         super.onResume()
         binding.topShadow.layoutParams.height = statusBarHeight + actionBarHeight
+        (binding.videoHdrBadge.layoutParams as RelativeLayout.LayoutParams).apply {
+            topMargin = statusBarHeight + actionBarHeight +
+                resources.getDimension(com.simplemobiletools.commons.R.dimen.medium_margin).toInt()
+        }
+        binding.videoHdrBadge.layoutParams = binding.videoHdrBadge.layoutParams
+        binding.videoHdrBadge.alpha = if (mIsFullscreen) 0f else 1f
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         if (config.blackBackground) {
@@ -83,6 +96,10 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
             val attributes = window.attributes
             attributes.screenBrightness = 1f
             window.attributes = attributes
+        }
+
+        if (mIsHdrVideo) {
+            setWindowHdrColorMode(true)
         }
 
         updateTextColors(binding.videoPlayerHolder)
@@ -101,6 +118,9 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
         if (config.rememberLastVideoPosition && mWasVideoStarted) {
             saveVideoProgress()
         }
+        if (mIsHdrColorModeActive) {
+            setWindowHdrColorMode(false)
+        }
     }
 
     override fun onDestroy() {
@@ -112,6 +132,9 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
             binding.bottomVideoTimeHolder.videoSeekbar.progress = 0
             mTimerHandler.removeCallbacksAndMessages(null)
             mPlayWhenReadyHandler.removeCallbacksAndMessages(null)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
         }
     }
 
@@ -182,6 +205,8 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
         binding.bottomVideoTimeHolder.videoTogglePlayPause.setOnClickListener { togglePlayPause() }
         binding.videoSurfaceFrame.setOnClickListener { toggleFullscreen() }
         binding.videoSurfaceFrame.controller.settings.swallowDoubleTaps = true
+        mHdrSurfaceView = binding.videoHdrSurface
+        mVideoSurfaceContainer = binding.videoSurfaceContainer
 
         binding.bottomVideoTimeHolder.videoNextFile.beVisibleIf(intent.getBooleanExtra(SHOW_NEXT_ITEM, false))
         binding.bottomVideoTimeHolder.videoNextFile.setOnClickListener { handleNextFile() }
@@ -203,7 +228,7 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
         }
 
         initExoPlayer()
-        binding.videoSurface.surfaceTextureListener = this
+        checkIfHdrVideo()
 
         if (config.allowVideoGestures) {
             binding.videoBrightnessController.initialize(this, binding.slideInfo, true, binding.videoPlayerHolder, singleTap = { x, y ->
@@ -229,6 +254,72 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
         }
 
         mDragThreshold = DRAG_THRESHOLD * resources.displayMetrics.density
+    }
+
+    private fun checkIfHdrVideo() {
+        val uri = mUri ?: return
+        ensureBackgroundThread {
+            val isHdr = HdrHelper.isHdrVideo(applicationContext, uri.toString())
+            runOnUiThread {
+                if (isDestroyed || isFinishing) {
+                    return@runOnUiThread
+                }
+                val wasHdr = mIsHdrVideo
+                mIsHdrVideo = isHdr
+                binding.videoHdrBadge.beVisibleIf(isHdr)
+                updateVideoSurfaceVisibility()
+                if (wasHdr != isHdr) {
+                    updateVideoSurface()
+                }
+                setWindowHdrColorMode(isHdr)
+            }
+        }
+    }
+
+    private fun updateVideoSurface() {
+        mExoPlayer?.apply {
+            if (mIsHdrVideo) {
+                setVideoSurfaceView(mHdrSurfaceView)
+            } else {
+                setVideoTextureView(binding.videoSurface)
+            }
+        }
+    }
+
+    private fun updateVideoSurfaceVisibility() {
+        mHdrSurfaceView.beVisibleIf(mIsHdrVideo)
+        binding.videoSurface.beVisibleIf(!mIsHdrVideo)
+        // a SurfaceView is a separate layer and does not follow the gesture view's canvas matrix
+        binding.videoSurfaceFrame.controller.settings.isZoomEnabled = !mIsHdrVideo
+        updateHdrSurfaceOffset()
+    }
+
+    // the gesture controller centers the TextureView through its canvas matrix, which a SurfaceView
+    // ignores, so offset the HDR surface manually to the same place
+    private fun updateHdrSurfaceOffset() {
+        if (!::mHdrSurfaceView.isInitialized) {
+            return
+        }
+        val frame = binding.videoSurfaceFrame
+        val container = mVideoSurfaceContainer
+        if (frame.width == 0 || frame.height == 0 || container.width == 0 || container.height == 0) {
+            return
+        }
+        mHdrSurfaceView.translationX = (frame.width - container.width) / 2f
+        mHdrSurfaceView.translationY = (frame.height - container.height) / 2f
+    }
+
+    // HDR surface output is only composited in HDR when the window asks for it, some ROMs
+    // (e.g. HyperOS) otherwise keep tone mapping the video down to SDR
+    private fun setWindowHdrColorMode(hdr: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        if (!hdr && !mIsHdrColorModeActive) {
+            return
+        }
+        window.colorMode = if (hdr) ActivityInfo.COLOR_MODE_HDR else ActivityInfo.COLOR_MODE_DEFAULT
+        mIsHdrColorModeActive = hdr
     }
 
     private fun initExoPlayer() {
@@ -260,6 +351,11 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
                     repeatMode = Player.REPEAT_MODE_ONE
                 }
                 prepare()
+                if (mIsHdrVideo) {
+                    setVideoSurfaceView(mHdrSurfaceView)
+                } else {
+                    setVideoTextureView(binding.videoSurface)
+                }
                 initListeners()
             }
     }
@@ -412,7 +508,7 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
 
         val screenProportion = screenWidth.toFloat() / screenHeight.toFloat()
 
-        binding.videoSurface.layoutParams.apply {
+        mVideoSurfaceContainer.layoutParams.apply {
             if (videoProportion > screenProportion) {
                 width = screenWidth
                 height = (screenWidth.toFloat() / videoProportion).toInt()
@@ -420,8 +516,9 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
                 width = (videoProportion * screenHeight.toFloat()).toInt()
                 height = screenHeight
             }
-            binding.videoSurface.layoutParams = this
+            mVideoSurfaceContainer.layoutParams = this
         }
+        mVideoSurfaceContainer.post { updateHdrSurfaceOffset() }
 
         val multiplier = if (screenWidth > screenHeight) 0.5 else 0.8
         mScreenWidth = (screenWidth * multiplier).toInt()
@@ -465,7 +562,8 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
             binding.bottomVideoTimeHolder.videoSeekbar,
             binding.bottomVideoTimeHolder.videoDuration,
             binding.topShadow,
-            binding.videoBottomGradient
+            binding.videoBottomGradient,
+            binding.videoHdrBadge
         ).forEach {
             it.animate().alpha(newAlpha).start()
         }
@@ -663,13 +761,4 @@ open class VideoPlayerActivity : SimpleActivity(), SeekBar.OnSeekBarChangeListen
         mIsDragged = false
     }
 
-    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-
-    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = false
-
-    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        mExoPlayer?.setVideoSurface(Surface(binding.videoSurface.surfaceTexture))
-    }
-
-    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
 }

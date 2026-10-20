@@ -4,6 +4,12 @@ Changelog
 本分支更新
 ----------
 
+### 6.28.28-fork.3 *(2026-10-20)*
+
+ * 视频播放器支持 HDR 播放：HDR 视频自动切换到 SurfaceView 输出并请求 HDR 显示模式，分页大图与独立播放器同时生效
+ * 独立视频播放器补充 HDR 徽标
+ * Release 签名固定使用 `D:\code\sdk\signing` 的证书，密码只从仓库外的 `signing.properties` 读取，不再写入项目
+
 ### 6.28.27-fork.2 *(2026-10-20)*
 
  * 新增 HDR 视频识别：支持 MP4/MOV/3GP 的 `colr`（PQ / HLG）、`mdcv` 与 Dolby Vision（`dvcC` / `dvvC`）元数据，以及 Matroska/WebM 的 TransferCharacteristics

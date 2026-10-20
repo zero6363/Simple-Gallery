@@ -11,13 +11,44 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <TextureView
-            android:id="@+id/video_surface"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_centerInParent="true" />
+        <FrameLayout
+            android:id="@+id/video_surface_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true">
+
+            <TextureView
+                android:id="@+id/video_surface"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- HDR video needs a SurfaceView, a TextureView forces the GPU compositor and loses HDR -->
+            <SurfaceView
+                android:id="@+id/video_hdr_surface"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+
+        </FrameLayout>
 
     </com.alexvasilkov.gestures.GestureFrameLayout>
+
+    <TextView
+        android:id="@+id/video_hdr_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:layout_marginStart="@dimen/activity_margin"
+        android:background="@drawable/black_rounded_background"
+        android:paddingLeft="@dimen/medium_margin"
+        android:paddingTop="@dimen/small_margin"
+        android:paddingRight="@dimen/medium_margin"
+        android:paddingBottom="@dimen/small_margin"
+        android:text="HDR"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/smaller_text_size"
+        android:visibility="gone" />
 
     <com.simplemobiletools.gallery.pro.views.MediaSideScroll
         android:id="@+id/video_volume_controller"

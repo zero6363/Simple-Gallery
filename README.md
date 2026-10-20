@@ -17,6 +17,7 @@
   - HDR PNG（`cICP` 块中的 PQ / HLG 传输特性）
 - 自动识别 HDR 视频：MP4/MOV/3GP 的 `colr`（PQ / HLG）、`mdcv` 与 Dolby Vision（`dvcC` / `dvvC`），以及 Matroska/WebM 的 TransferCharacteristics
 - 在网格、列表和大图播放界面显示 **HDR** 徽标，HDR 视频同样标识。
+- HDR 视频播放时自动切换为 `SurfaceView` 输出并请求窗口 HDR 色彩模式，分页大图与独立播放器均支持；SDR 视频继续使用 `TextureView` 以保留缩放手势。
 - Android 14+ 上，带增益图的照片通过系统 gain map 管线以**真实 HDR** 显示；同时适配需要窗口 HDR 色彩模式的 ROM（如 HyperOS）。
 - 检测在后台线程执行并缓存结果，滚动大文件夹时不会阻塞界面。
 
@@ -56,9 +57,11 @@
 # 调试版（FOSS 变体，无需影像编辑 SDK 密钥）
 ./gradlew assembleFossDebug
 
-# 发布版：先在根目录创建 keystore.properties，参考 keystore.properties_sample
+# 发布版：从仓库外的固定签名目录读取证书与密码
 ./gradlew assembleFossRelease
 ```
+
+Release 签名默认读取 `D:\code\sdk\signing\android-release.keystore` 与同目录的 `signing.properties`，密码不会进入 Git。可用环境变量 `ANDROID_SIGNING_DIR` 指向其他签名目录；旧版根目录 `keystore.properties` 仍作为回退方案。
 
 `proprietary` 变体包含 IMG.LY 高级编辑器，需要额外的 SDK 配置（见 `gradle/imglysdk.gradle`）。
 
@@ -76,7 +79,7 @@ Simple Gallery 2 is a community-maintained fork of [Simple Gallery Pro](https://
 
 ## Fork highlights
 
-- **Full HDR support** — detects Ultra HDR JPEG, ISO 21496-1 gain maps (HEIF/AVIF/JPEG), Apple HDR gain maps, HDR10, HLG, Dolby Vision, HDR PNG and HDR videos (MP4/MOV/3GP colour metadata and Dolby Vision, Matroska/WebM TransferCharacteristics). Shows an HDR badge in grids, lists and the fullscreen viewer, and renders gain-map photos in true HDR on Android 14+, including ROMs that require the window HDR colour mode (e.g. HyperOS).
+- **Full HDR support** — detects Ultra HDR JPEG, ISO 21496-1 gain maps (HEIF/AVIF/JPEG), Apple HDR gain maps, HDR10, HLG, Dolby Vision, HDR PNG and HDR videos (MP4/MOV/3GP colour metadata and Dolby Vision, Matroska/WebM TransferCharacteristics). Shows an HDR badge in grids, lists and the fullscreen viewer, plays HDR videos through a `SurfaceView` with the window HDR colour mode requested, and renders gain-map photos in true HDR on Android 14+, including ROMs that require the window HDR colour mode (e.g. HyperOS).
 - **Live photos** — plays motion photos from Google (legacy MVIMG and current MotionPhoto), Samsung SEFT and paired-video formats, with an optional auto-play setting. Extracted videos are cached and pruned automatically.
 - **System recycle bin (Android 11+)** — delete into the MediaStore trash, browse it, restore or permanently delete items, and toggle the behaviour in Settings.
 - **Millisecond slideshow intervals**, with automatic migration of the old seconds-based setting.
@@ -89,6 +92,8 @@ Download APKs from [GitHub Releases](https://github.com/zero6363/Simple-Gallery/
 ```bash
 ./gradlew assembleFossDebug
 ```
+
+Release builds read the fixed keystore and passwords from `D:\code\sdk\signing` (override with `ANDROID_SIGNING_DIR`); no signing secrets are stored in the repository.
 
 ## License
 

@@ -41,8 +41,8 @@ app-build-javaVersion = "VERSION_17"
 app-build-kotlinJVMTarget = "17"
 #versioning
 app-version-appId = "com.simplemobiletools.gallery2"
-app-version-versionCode = "421"
-app-version-versionName = "6.28.27"
+app-version-versionCode = "422"
+app-version-versionName = "6.28.28"
 subsamplingScaleImageView = "80efdaa570"
 [libraries]
 #AndroidX

@@ -1,0 +1,3 @@
+• HDR video playback: SurfaceView output and HDR display mode in the pager and standalone player
+• HDR badge added to the standalone video player
+• Release builds use the fixed keystore outside the repository, with no signing secrets in Git

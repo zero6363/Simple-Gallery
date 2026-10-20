@@ -1525,15 +1525,20 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
         }
     }
 
-    // gain map rendering on some ROMs (e.g. HyperOS) only happens while the window is in HDR display
-    // mode, so the mode has to follow the currently selected page. Never write it while the current
-    // fragment is missing (mid-recreation), its own load path asserts the mode once it knows better.
+    // gain map rendering and HDR video output on some ROMs (e.g. HyperOS) only happen while the
+    // window is in HDR display mode, so the mode has to follow the currently selected page. Never
+    // write it while the current fragment is missing (mid-recreation), its own load path asserts
+    // the mode once it knows better.
     fun updateHdrColorMode() {
-        val photoFragment = pagerAdapter?.getCurrentFragment(mPos) as? PhotoFragment ?: return
-        val target = if (photoFragment.isHdrGainMapImage()) ActivityInfo.COLOR_MODE_HDR else ActivityInfo.COLOR_MODE_DEFAULT
+        val fragment = pagerAdapter?.getCurrentFragment(mPos) ?: return
+        val target = when (fragment) {
+            is PhotoFragment -> if (fragment.isHdrGainMapImage()) ActivityInfo.COLOR_MODE_HDR else ActivityInfo.COLOR_MODE_DEFAULT
+            is VideoFragment -> if (fragment.requiresHdrColorMode()) ActivityInfo.COLOR_MODE_HDR else ActivityInfo.COLOR_MODE_DEFAULT
+            else -> return
+        }
         if (window.colorMode != target) {
             window.colorMode = target
-            photoFragment.forceRedraw()
+            (fragment as? PhotoFragment)?.forceRedraw()
         }
     }
 
