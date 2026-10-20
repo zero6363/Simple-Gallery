@@ -1,0 +1,2 @@
+• Fixed the black bar over HDR video thumbnails before playback starts
+• HDR playback now shows the SurfaceView only after playback actually begins

@@ -533,7 +533,7 @@ class VideoFragment : ViewPagerFragment(), SeekBar.OnSeekBarChangeListener {
                     updateHdrBadgePosition()
                     binding.videoHdrBadge.alpha = if (mIsFullscreen) 0f else 1f
                     updateVideoSurfaceVisibility()
-                    if (wasHdr != isHdr) {
+                    if (wasHdr != isHdr && !binding.videoPreview.isVisible()) {
                         updateVideoSurface()
                     }
                     if (mIsFragmentVisible && requiresHdrColorMode()) {
@@ -548,7 +548,7 @@ class VideoFragment : ViewPagerFragment(), SeekBar.OnSeekBarChangeListener {
 
     private fun updateVideoSurface() {
         val player = mExoPlayer ?: return
-        if (mIsHdrVideo) {
+        if (mIsHdrVideo && !binding.videoPreview.isVisible()) {
             player.setVideoSurfaceView(mHdrSurfaceView)
         } else {
             player.setVideoTextureView(mTextureView)
@@ -557,8 +557,12 @@ class VideoFragment : ViewPagerFragment(), SeekBar.OnSeekBarChangeListener {
 
     private fun updateVideoSurfaceVisibility() {
         val hideVideo = mConfig.openVideosOnSeparateScreen || mIsPanorama
-        mHdrSurfaceView.beVisibleIf(!hideVideo && mIsHdrVideo)
-        mTextureView.beVisibleIf(!hideVideo && !mIsHdrVideo)
+        // an empty SurfaceView is opaque black, so keep the thumbnail visible until playback
+        // actually starts and the HDR surface has video frames to show
+        val showHdrSurface = !hideVideo && mIsHdrVideo && !binding.videoPreview.isVisible()
+        mHdrSurfaceView.beVisibleIf(showHdrSurface)
+        // TextureView without a player surface is transparent, so the thumbnail can still show
+        mTextureView.beVisibleIf(!hideVideo && !showHdrSurface)
         binding.videoSurfaceFrame.beVisibleIf(!hideVideo)
         // a SurfaceView is a separate layer and does not follow the gesture view's canvas matrix,
         // pinch zooming would scale the view hierarchy but not the video itself
@@ -742,7 +746,17 @@ class VideoFragment : ViewPagerFragment(), SeekBar.OnSeekBarChangeListener {
     }
 
     fun playVideo() {
+        // reveal the HDR surface only now, an empty SurfaceView would cover the thumbnail with black
+        if (mIsHdrVideo && binding.videoPreview.isVisible()) {
+            binding.videoPreview.beGone()
+            updateVideoSurfaceVisibility()
+            updateVideoSurface()
+        }
+
         if (mExoPlayer == null) {
+            if (mIsHdrVideo) {
+                updateVideoSurfaceVisibility()
+            }
             initExoPlayer()
             return
         }
