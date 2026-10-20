@@ -160,6 +160,10 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(AUTOPLAY_VIDEOS, false)
         set(autoplayVideos) = prefs.edit().putBoolean(AUTOPLAY_VIDEOS, autoplayVideos).apply()
 
+    var autoPlayMotionPhotos: Boolean
+        get() = prefs.getBoolean(AUTO_PLAY_MOTION_PHOTOS, true)
+        set(autoPlayMotionPhotos) = prefs.edit().putBoolean(AUTO_PLAY_MOTION_PHOTOS, autoPlayMotionPhotos).apply()
+
     var animateGifs: Boolean
         get() = prefs.getBoolean(ANIMATE_GIFS, false)
         set(animateGifs) = prefs.edit().putBoolean(ANIMATE_GIFS, animateGifs).apply()
@@ -304,8 +308,22 @@ class Config(context: Context) : BaseConfig(context) {
         set(allowVideoGestures) = prefs.edit().putBoolean(ALLOW_VIDEO_GESTURES, allowVideoGestures).apply()
 
     var slideshowInterval: Int
-        get() = prefs.getInt(SLIDESHOW_INTERVAL, SLIDESHOW_DEFAULT_INTERVAL)
-        set(slideshowInterval) = prefs.edit().putInt(SLIDESHOW_INTERVAL, slideshowInterval).apply()
+        get() {
+            if (prefs.contains(SLIDESHOW_INTERVAL_MS)) {
+                return prefs.getInt(SLIDESHOW_INTERVAL_MS, SLIDESHOW_DEFAULT_INTERVAL)
+                    .coerceIn(SLIDESHOW_MIN_INTERVAL, SLIDESHOW_MAX_INTERVAL)
+            }
+
+            // versions before 6.28.15 stored the interval in seconds, migrate it once
+            val seconds = prefs.getInt(SLIDESHOW_INTERVAL, SLIDESHOW_DEFAULT_INTERVAL / 1000)
+            val intervalMs = (seconds * 1000).coerceIn(SLIDESHOW_MIN_INTERVAL, SLIDESHOW_MAX_INTERVAL)
+            prefs.edit().putInt(SLIDESHOW_INTERVAL_MS, intervalMs).apply()
+            return intervalMs
+        }
+        set(slideshowInterval) = prefs.edit().putInt(
+            SLIDESHOW_INTERVAL_MS,
+            slideshowInterval.coerceIn(SLIDESHOW_MIN_INTERVAL, SLIDESHOW_MAX_INTERVAL)
+        ).apply()
 
     var slideshowIncludeVideos: Boolean
         get() = prefs.getBoolean(SLIDESHOW_INCLUDE_VIDEOS, false)
@@ -390,6 +408,10 @@ class Config(context: Context) : BaseConfig(context) {
     var useRecycleBin: Boolean
         get() = prefs.getBoolean(USE_RECYCLE_BIN, true)
         set(useRecycleBin) = prefs.edit().putBoolean(USE_RECYCLE_BIN, useRecycleBin).apply()
+
+    var useSystemRecycleBin: Boolean
+    get() = prefs.getBoolean(USE_SYSTEM_RECYCLE_BIN, true)
+    set(useSystemRecycleBin) = prefs.edit().putBoolean(USE_SYSTEM_RECYCLE_BIN, useSystemRecycleBin).apply()
 
     var bottomActions: Boolean
         get() = prefs.getBoolean(BOTTOM_ACTIONS, true)

@@ -19,6 +19,34 @@
         android:layout_height="@dimen/list_view_folder_thumbnail_size" />
 
     <ImageView
+        android:id="@+id/motion_photo_badge"
+        android:layout_width="@dimen/motion_photo_badge_size"
+        android:layout_height="@dimen/motion_photo_badge_size"
+        android:layout_alignStart="@+id/medium_thumbnail"
+        android:layout_alignTop="@+id/medium_thumbnail"
+        android:layout_margin="@dimen/smaller_margin"
+        android:background="@drawable/circle_black_background"
+        android:contentDescription="@string/live_photo"
+        android:padding="@dimen/tiny_margin"
+        android:src="@drawable/ic_live_photo_circle"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/hdr_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignStart="@+id/medium_thumbnail"
+        android:layout_alignTop="@+id/medium_thumbnail"
+        android:layout_margin="@dimen/smaller_margin"
+        android:fontFamily="sans-serif-medium"
+        android:shadowColor="@color/default_background_color"
+        android:shadowRadius="4"
+        android:text="HDR"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/smaller_text_size"
+        android:visibility="gone" />
+
+    <ImageView
         android:id="@+id/favorite"
         android:layout_width="@dimen/favorite_list_icon_size"
         android:layout_height="@dimen/favorite_list_icon_size"

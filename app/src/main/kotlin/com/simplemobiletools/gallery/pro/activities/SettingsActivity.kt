@@ -61,6 +61,7 @@ class SettingsActivity : SimpleActivity() {
         setupSearchAllFiles()
         setupShowHiddenItems()
         setupAutoplayVideos()
+        setupAutoPlayMotionPhotos()
         setupRememberLastVideo()
         setupLoopVideos()
         setupOpenVideosOnSeparateScreen()
@@ -96,6 +97,7 @@ class SettingsActivity : SimpleActivity() {
         setupSkipDeleteConfirmation()
         setupManageBottomActions()
         setupUseRecycleBin()
+        setupUseSystemRecycleBin()
         setupShowRecycleBin()
         setupShowRecycleBinLast()
         setupEmptyRecycleBin()
@@ -268,6 +270,14 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsAutoplayVideosHolder.setOnClickListener {
             binding.settingsAutoplayVideos.toggle()
             config.autoplayVideos = binding.settingsAutoplayVideos.isChecked
+        }
+    }
+
+    private fun setupAutoPlayMotionPhotos() {
+        binding.settingsAutoPlayMotionPhotos.isChecked = config.autoPlayMotionPhotos
+        binding.settingsAutoPlayMotionPhotosHolder.setOnClickListener {
+            binding.settingsAutoPlayMotionPhotos.toggle()
+            config.autoPlayMotionPhotos = binding.settingsAutoPlayMotionPhotos.isChecked
         }
     }
 
@@ -664,6 +674,14 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
+    private fun setupUseSystemRecycleBin() {
+        binding.settingsUseSystemRecycleBin.isChecked = config.useSystemRecycleBin
+        binding.settingsUseSystemRecycleBinHolder.setOnClickListener {
+            binding.settingsUseSystemRecycleBin.toggle()
+            config.useSystemRecycleBin = binding.settingsUseSystemRecycleBin.isChecked
+        }
+    }
+
     private fun setupShowRecycleBin() {
         binding.settingsShowRecycleBin.isChecked = config.showRecycleBinAtFolders
         binding.settingsShowRecycleBinHolder.setOnClickListener {
@@ -685,6 +703,7 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun updateRecycleBinButtons() {
+        binding.settingsUseSystemRecycleBinHolder.beVisibleIf(config.useRecycleBin && isRPlus())
         binding.settingsShowRecycleBinLastHolder.beVisibleIf(config.useRecycleBin && config.showRecycleBinAtFolders)
         binding.settingsEmptyRecycleBinHolder.beVisibleIf(config.useRecycleBin)
         binding.settingsShowRecycleBinHolder.beVisibleIf(config.useRecycleBin)
@@ -870,6 +889,7 @@ class SettingsActivity : SimpleActivity() {
                 put(SHOW_HIDDEN_MEDIA, config.showHiddenMedia)
                 put(FILE_LOADING_PRIORITY, config.fileLoadingPriority)
                 put(AUTOPLAY_VIDEOS, config.autoplayVideos)
+                put(AUTO_PLAY_MOTION_PHOTOS, config.autoPlayMotionPhotos)
                 put(REMEMBER_LAST_VIDEO_POSITION, config.rememberLastVideoPosition)
                 put(LOOP_VIDEOS, config.loopVideos)
                 put(OPEN_VIDEOS_ON_SEPARATE_SCREEN, config.openVideosOnSeparateScreen)
@@ -902,6 +922,7 @@ class SettingsActivity : SimpleActivity() {
                 put(BOTTOM_ACTIONS, config.bottomActions)
                 put(VISIBLE_BOTTOM_ACTIONS, config.visibleBottomActions)
                 put(USE_RECYCLE_BIN, config.useRecycleBin)
+                put(USE_SYSTEM_RECYCLE_BIN, config.useSystemRecycleBin)
                 put(SHOW_RECYCLE_BIN_AT_FOLDERS, config.showRecycleBinAtFolders)
                 put(SHOW_RECYCLE_BIN_LAST, config.showRecycleBinLast)
                 put(SORT_ORDER, config.sorting)
@@ -1014,6 +1035,7 @@ class SettingsActivity : SimpleActivity() {
                 SHOW_HIDDEN_MEDIA -> config.showHiddenMedia = value.toBoolean()
                 FILE_LOADING_PRIORITY -> config.fileLoadingPriority = value.toInt()
                 AUTOPLAY_VIDEOS -> config.autoplayVideos = value.toBoolean()
+                AUTO_PLAY_MOTION_PHOTOS -> config.autoPlayMotionPhotos = value.toBoolean()
                 REMEMBER_LAST_VIDEO_POSITION -> config.rememberLastVideoPosition = value.toBoolean()
                 LOOP_VIDEOS -> config.loopVideos = value.toBoolean()
                 OPEN_VIDEOS_ON_SEPARATE_SCREEN -> config.openVideosOnSeparateScreen = value.toBoolean()

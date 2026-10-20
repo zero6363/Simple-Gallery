@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Simple Gallery</string>
-    <string name="app_launcher_name">Gallery</string>
+    <string name="app_name">Simple Gallery 2</string>
+    <string name="app_launcher_name">Gallery 2</string>
     <string name="edit">Edit</string>
     <string name="open_camera">Open camera</string>
     <string name="hidden">(hidden)</string>
@@ -43,6 +43,7 @@
     <string name="raw_images">RAW images</string>
     <string name="svgs">SVGs</string>
     <string name="portraits">Portraits</string>
+    <string name="live_photo">Live photo</string>
     <string name="no_media_with_filters">No media files have been found with the selected filters.</string>
     <string name="change_filters_underlined"><u>Change filters</u></string>
 
@@ -129,6 +130,7 @@
     <!-- Slideshow -->
     <string name="slideshow">Slideshow</string>
     <string name="interval">Interval</string>
+    <string name="milliseconds_raw">milliseconds</string>
     <string name="include_photos">Include photos</string>
     <string name="include_videos">Include videos</string>
     <string name="include_gifs">Include GIFs</string>
@@ -166,6 +168,7 @@
 
     <!-- Settings -->
     <string name="autoplay_videos">Play videos automatically</string>
+    <string name="auto_play_motion_photos">Auto-play live photos</string>
     <string name="remember_last_video_position">Remember last video playback position</string>
     <string name="loop_videos">Loop videos</string>
     <string name="animate_gifs">Animate GIFs at thumbnails</string>
@@ -396,4 +399,7 @@
         Haven't found some strings? There's more at
         https://github.com/SimpleMobileTools/Simple-Commons/tree/master/commons/src/main/res
     -->
+    <string name="use_system_recycle_bin">使用系统回收站(安卓11及以上),回收的文件由系统统一管理和清理</string>
+    <string name="view_system_recycle_bin">查看系统回收站</string>
+    <string name="system_recycle_bin">系统回收站</string>
 </resources>

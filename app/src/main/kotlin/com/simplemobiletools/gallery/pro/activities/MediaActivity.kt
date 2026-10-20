@@ -261,15 +261,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaMenu.getToolbar().menu.apply {
             findItem(R.id.group).isVisible = !config.scrollHorizontally
 
-            findItem(R.id.empty_recycle_bin).isVisible = mPath == RECYCLE_BIN
+            findItem(R.id.empty_recycle_bin).isVisible = mPath == RECYCLE_BIN || mPath == SYSTEM_RECYCLE_BIN
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
-            findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
+            findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN || mPath == SYSTEM_RECYCLE_BIN
 
             findItem(R.id.folder_view).isVisible = mShowAll
             findItem(R.id.open_camera).isVisible = mShowAll
             findItem(R.id.about).isVisible = mShowAll
             findItem(R.id.create_new_folder).isVisible = !mShowAll && mPath != RECYCLE_BIN && mPath != FAVORITES
-            findItem(R.id.open_recycle_bin).isVisible = config.useRecycleBin && mPath != RECYCLE_BIN
+            findItem(R.id.open_recycle_bin).isVisible = config.useRecycleBin && mPath != RECYCLE_BIN && mPath != SYSTEM_RECYCLE_BIN
+            findItem(R.id.open_system_recycle_bin).isVisible = isRPlus() && mPath != RECYCLE_BIN && mPath != SYSTEM_RECYCLE_BIN
 
             findItem(R.id.temporarily_show_hidden).isVisible = !config.shouldShowHidden
             findItem(R.id.stop_showing_hidden).isVisible = (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
@@ -308,6 +309,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 R.id.group -> showGroupByDialog()
                 R.id.create_new_folder -> createNewFolder()
                 R.id.open_recycle_bin -> openRecycleBin()
+                R.id.open_system_recycle_bin -> openSystemRecycleBin()
                 R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
                 R.id.stop_showing_hidden -> tryToggleTemporarilyShowHidden()
                 R.id.column_count -> changeColumnCount()
@@ -352,7 +354,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mStoredMarkFavoriteItems = markFavoriteItems
             mStoredThumbnailSpacing = thumbnailSpacing
             mStoredRoundedCorners = fileRoundedCorners
-            mShowAll = showAll && mPath != RECYCLE_BIN
+            mShowAll = showAll && mPath != RECYCLE_BIN && mPath != SYSTEM_RECYCLE_BIN
         }
     }
 
@@ -386,6 +388,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 val dirName = when {
                     mPath == FAVORITES -> getString(com.simplemobiletools.commons.R.string.favorites)
                     mPath == RECYCLE_BIN -> getString(com.simplemobiletools.commons.R.string.recycle_bin)
+                    mPath == SYSTEM_RECYCLE_BIN -> getString(R.string.system_recycle_bin)
                     mPath == config.OTGPath -> getString(com.simplemobiletools.commons.R.string.usb)
                     else -> getHumanizedFilename(mPath)
                 }
@@ -499,6 +502,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun emptyRecycleBin() {
+        if (mPath == SYSTEM_RECYCLE_BIN) {
+            showRecycleBinEmptyingDialog {
+                val paths = mMedia.filterIsInstance<Medium>().map { it.path } as ArrayList<String>
+                deleteSystemRecycledPaths(paths) {
+                    finish()
+                }
+            }
+            return
+        }
+
         showRecycleBinEmptyingDialog {
             emptyTheRecycleBin {
                 finish()
@@ -619,7 +632,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun isDirEmpty(): Boolean {
         return if (mMedia.size <= 0 && config.filterMedia > 0) {
-            if (mPath != FAVORITES && mPath != RECYCLE_BIN) {
+            if (mPath != FAVORITES && mPath != RECYCLE_BIN && mPath != SYSTEM_RECYCLE_BIN) {
                 deleteDirectoryIfEmpty()
                 deleteDBDirectory()
             }
@@ -630,7 +643,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             }
 
-            if (mPath == RECYCLE_BIN) {
+            if (mPath == RECYCLE_BIN || mPath == SYSTEM_RECYCLE_BIN) {
                 binding.mediaEmptyTextPlaceholder.setText(com.simplemobiletools.commons.R.string.no_items_found)
                 binding.mediaEmptyTextPlaceholder.beVisible()
                 binding.mediaEmptyTextPlaceholder2.beGone()
@@ -844,7 +857,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (isVideo) {
                 val extras = HashMap<String, Boolean>()
                 extras[SHOW_FAVORITES] = mPath == FAVORITES
-                if (path.startsWith(recycleBinPath)) {
+                if (path.startsWith(recycleBinPath) || SystemTrashHelper.getCachedIsTrashed(path)) {
                     extras[IS_IN_RECYCLE_BIN] = true
                 }
 
@@ -858,7 +871,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     putExtra(PATH, path)
                     putExtra(SHOW_ALL, mShowAll)
                     putExtra(SHOW_FAVORITES, mPath == FAVORITES)
-                    putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN)
+                    putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN || mPath == SYSTEM_RECYCLE_BIN)
                     putExtra(IS_FROM_GALLERY, true)
                     startActivity(this)
                 }
@@ -902,15 +915,38 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
-        if (config.useRecycleBin && !skipRecycleBin && !filtered.first().path.startsWith(recycleBinPath)) {
+        val firstPath = filtered.first().path
+        val alreadySystemTrashed = SystemTrashHelper.getCachedIsTrashed(firstPath)
+        if (config.useRecycleBin && !skipRecycleBin && !alreadySystemTrashed && !firstPath.startsWith(recycleBinPath)) {
             val movingItems = resources.getQuantityString(com.simplemobiletools.commons.R.plurals.moving_items_into_bin, filtered.size, filtered.size)
             toast(movingItems)
 
-            movePathsInRecycleBin(filtered.map { it.path } as ArrayList<String>) {
-                if (it) {
-                    deleteFilteredFiles(filtered)
-                } else {
+            movePathsToRecycleBin(filtered.map { it.path } as ArrayList<String>) { usedSystemRecycleBin, success ->
+                if (!success) {
                     toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
+                } else if (usedSystemRecycleBin) {
+                    // the OS already hides the files everywhere, only the visible list has to be refreshed
+                    mMedia.removeAll { filtered.map { it.path }.contains((it as? Medium)?.path) }
+                    refreshItems()
+                } else {
+                    deleteFilteredFiles(filtered)
+                }
+            }
+        } else if (alreadySystemTrashed) {
+            // deleting from the recycle bin screen, purge the system recycled files for good
+            val deletingItems = resources.getQuantityString(com.simplemobiletools.commons.R.plurals.deleting_items, filtered.size, filtered.size)
+            toast(deletingItems)
+
+            deleteSystemRecycledPaths(filtered.map { it.path } as ArrayList<String>) { success ->
+                if (!success) {
+                    toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
+                } else {
+                    mMedia.removeAll { filtered.map { it.path }.contains((it as? Medium)?.path) }
+                    if (mMedia.isEmpty()) {
+                        finish()
+                    } else {
+                        refreshItems()
+                    }
                 }
             }
         } else {

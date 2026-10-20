@@ -1,6 +1,7 @@
 package com.simplemobiletools.gallery.pro.fragments
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -20,6 +21,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.RelativeLayout
 import androidx.exifinterface.media.ExifInterface.*
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import com.alexvasilkov.gestures.GestureController
 import com.alexvasilkov.gestures.State
 import com.bumptech.glide.Glide
@@ -65,6 +72,7 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.ceil
 
+@UnstableApi
 class PhotoFragment : ViewPagerFragment() {
     private val DEFAULT_DOUBLE_TAP_ZOOM = 2f
     private val ZOOMABLE_VIEW_LOAD_DELAY = 100L
@@ -81,11 +89,15 @@ class PhotoFragment : ViewPagerFragment() {
     private var mIsFullscreen = false
     private var mWasInit = false
     private var mIsPanorama = false
+    private var mIsMotionPhoto = false
+    private var mIsPlayingMotionVideo = false
+    private var mExoPlayer: ExoPlayer? = null
     private var mIsSubsamplingVisible = false    // checking view.visibility is unreliable, use an extra variable for it
     private var mShouldResetImage = false
     private var mCurrentPortraitPhotoPath = ""
     private var mOriginalPath = ""
     private var mImageOrientation = -1
+    private var mIsHdrGainMap = false            // true while the shown image is a gain map one rendered through the platform HDR pipeline
     private var mLoadZoomableViewHandler = Handler()
     private var mScreenWidth = 0
     private var mScreenHeight = 0
@@ -122,6 +134,14 @@ class PhotoFragment : ViewPagerFragment() {
             instantPrevItem.setOnClickListener { listener?.goToPrevItem() }
             instantNextItem.setOnClickListener { listener?.goToNextItem() }
             panoramaOutline.setOnClickListener { openPanorama() }
+            photoMotionBadge.setOnClickListener { playMotionVideo() }
+
+            // the pager toolbar is transparent and overlays the content, push the live photo badge below it
+            binding.photoMotionBadge.let { badge ->
+                (badge.layoutParams as RelativeLayout.LayoutParams).topMargin =
+                    requireContext().statusBarHeight + requireContext().actionBarHeight +
+                    resources.getDimension(com.simplemobiletools.commons.R.dimen.medium_margin).toInt()
+            }
 
             instantPrevItem.parentView = container
             instantNextItem.parentView = container
@@ -215,11 +235,20 @@ class PhotoFragment : ViewPagerFragment() {
             checkIfPanorama()
         }
 
+        ensureBackgroundThread {
+            checkIfMotionPhoto()
+        }
+
+        ensureBackgroundThread {
+            checkIfHdrImage()
+        }
+
         return mView
     }
 
     override fun onPause() {
         super.onPause()
+        stopMotionPlayback()
         storeStateVariables()
     }
 
@@ -248,6 +277,11 @@ class PhotoFragment : ViewPagerFragment() {
         val allowPhotoGestures = config.allowPhotoGestures
         val allowInstantChange = config.allowInstantChange
 
+        if (mWasInit && mIsHdrGainMap && mIsFragmentVisible) {
+            // re-assert the HDR display mode, other fragments or the system may have reset it
+            setWindowHdrColorMode(true)
+        }
+
         binding.apply {
             photoBrightnessController.beVisibleIf(allowPhotoGestures)
             instantPrevItem.beVisibleIf(allowInstantChange)
@@ -259,6 +293,9 @@ class PhotoFragment : ViewPagerFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        stopMotionPlayback()
+        // the display color mode belongs to the activity; fragments get destroyed while paging and
+        // resetting it here would clobber the mode of the just-activated gain map image
         if (activity?.isDestroyed == false) {
             binding.subsamplingView.recycle()
 
@@ -281,6 +318,7 @@ class PhotoFragment : ViewPagerFragment() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        stopMotionPlayback()
         if (!mWasInit) {
             return
         }
@@ -313,6 +351,20 @@ class PhotoFragment : ViewPagerFragment() {
         if (mWasInit) {
             if (!mMedium.isGIF() && !mMedium.isWebP() && !mMedium.isApng()) {
                 photoFragmentVisibilityChanged(menuVisible)
+            }
+
+            if (menuVisible) {
+                // this device's renderer only composites the gain map while the window is in HDR mode,
+                // keep it asserted for as long as the gain map image is the visible one
+                if (mIsHdrGainMap) {
+                    setWindowHdrColorMode(true)
+                }
+                maybeAutoPlayMotionVideo()
+            } else {
+                stopMotionPlayback()
+                if (mIsHdrGainMap) {
+                    setWindowHdrColorMode(false)
+                }
             }
         }
     }
@@ -375,7 +427,16 @@ class PhotoFragment : ViewPagerFragment() {
 
         ensureBackgroundThread {
             mImageOrientation = getImageOrientation()
+            var hdrGainMap = false
+            val context = context
+            if (context != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                mMedium.isImage() && !mMedium.isPortrait() && !mMedium.isGIF()
+            ) {
+                hdrGainMap = HdrHelper.isGainMapImage(context, mMedium.path)
+            }
+
             activity?.runOnUiThread {
+                mIsHdrGainMap = hdrGainMap && mCurrentRotationDegrees == 0
                 when {
                     mMedium.isGIF() -> loadGif()
                     mMedium.isSVG() -> loadSVG()
@@ -432,7 +493,9 @@ class PhotoFragment : ViewPagerFragment() {
         }
 
         val path = getFilePathToShow()
-        if (path.isWebP()) {
+        if (mIsHdrGainMap) {
+            loadHdrGainMap(path)
+        } else if (path.isWebP()) {
             val drawable = WebPDrawable.fromFile(path)
             if (drawable.intrinsicWidth == 0) {
                 loadWithGlide(path, addZoomableView)
@@ -442,6 +505,104 @@ class PhotoFragment : ViewPagerFragment() {
         } else {
             loadWithGlide(path, addZoomableView)
         }
+    }
+
+    // gain map images (Ultra HDR and similar) are shown through the platform HDR pipeline on Android 14+:
+    // the decoded bitmap keeps its gain map and is composited in HDR by the hardware renderer.
+    // Zoomable tiles are skipped for them, as tile decoders lose the gain map and would break HDR rendering.
+    private fun loadHdrGainMap(path: String) {
+        ensureBackgroundThread {
+            val bitmap = decodeHdrBitmap(path)
+            activity?.runOnUiThread {
+                if (!isAdded || context == null) {
+                    return@runOnUiThread
+                }
+
+                if (bitmap == null) {
+                    mIsHdrGainMap = false
+                    loadWithGlide(path, true)
+                } else {
+                    hideZoomableView()
+                    binding.gesturesView.controller.settings.isZoomEnabled = true
+                    binding.gesturesView.setImageBitmap(bitmap)
+                    if (mIsFragmentVisible) {
+                        setWindowHdrColorMode(true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun decodeHdrBitmap(path: String): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                null
+            } else {
+                // cap the resolution at roughly four times the screen size per dimension,
+                // full resolution is unnecessarily heavy for the fit-to-screen preview
+                val targetPixels = mScreenWidth.toLong() * mScreenHeight * 16
+                var sampleSize = 1
+                while (bounds.outWidth.toLong() * bounds.outHeight / (sampleSize.toLong() * sampleSize) > targetPixels) {
+                    sampleSize *= 2
+                }
+
+                val bitmap = decodeHdrBitmapWithSampleSize(path, sampleSize)
+                if (bitmap == null) {
+                    null
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !bitmap.hasGainmap() && sampleSize > 1 &&
+                    bounds.outWidth.toLong() * bounds.outHeight <= 16_000_000L
+                ) {
+                    // some ROMs drop the gain map when downsampling, retry once at full resolution
+                    // if the image is small enough to do that safely
+                    bitmap.recycle()
+                    val fullRes = decodeHdrBitmapWithSampleSize(path, 1)
+                    if (fullRes != null) rotateHdrBitmapIfNecessary(fullRes) else null
+                } else {
+                    rotateHdrBitmapIfNecessary(bitmap)
+                }
+            }
+        } catch (ignored: Exception) {
+            null
+        } catch (ignored: OutOfMemoryError) {
+            null
+        }
+    }
+
+    private fun decodeHdrBitmapWithSampleSize(path: String, sampleSize: Int): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            BitmapFactory.decodeFile(path, options)
+        } catch (ignored: Exception) {
+            null
+        } catch (ignored: OutOfMemoryError) {
+            null
+        }
+    }
+
+    private fun rotateHdrBitmapIfNecessary(bitmap: Bitmap): Bitmap {
+        val degrees = degreesForRotation(mImageOrientation).toFloat()
+        if (degrees == 0f) {
+            return bitmap
+        }
+
+        val matrix = Matrix()
+        matrix.setRotate(degrees)
+        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // rotating drops the gain map, attach the original one back
+            if (!rotated.hasGainmap() && bitmap.hasGainmap()) {
+                rotated.setGainmap(bitmap.gainmap)
+            }
+            if (rotated != bitmap) {
+                bitmap.recycle()
+            }
+        }
+        return rotated
     }
 
     private fun loadWithGlide(path: String, addZoomableView: Boolean) {
@@ -650,13 +811,19 @@ class PhotoFragment : ViewPagerFragment() {
     private fun scheduleZoomableView() {
         mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
         mLoadZoomableViewHandler.postDelayed({
-            if (mIsFragmentVisible && context?.config?.allowZoomingImages == true && (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
+            if (mIsFragmentVisible && !mIsHdrGainMap && context?.config?.allowZoomingImages == true &&
+                (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible
+            ) {
                 addZoomableView()
             }
         }, ZOOMABLE_VIEW_LOAD_DELAY)
     }
 
     private fun addZoomableView() {
+        if (mIsHdrGainMap) {
+            return
+        }
+
         val rotation = degreesForRotation(mImageOrientation)
         mIsSubsamplingVisible = true
         val config = requireContext().config
@@ -770,6 +937,169 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
+    private fun checkIfMotionPhoto() {
+        val context = context ?: return
+        mIsMotionPhoto = MotionPhotoHelper.isMotionPhoto(context, mMedium.path)
+        activity?.runOnUiThread {
+            if (isAdded && mWasInit) {
+                binding.photoMotionBadge.beVisibleIf(mIsMotionPhoto)
+                updateHdrBadgePosition()
+                maybeAutoPlayMotionVideo()
+            }
+        }
+    }
+
+    private fun checkIfHdrImage() {
+        val context = context ?: return
+        val isHdr = mMedium.isImage() && HdrHelper.isHdrImage(context, mMedium.path)
+        activity?.runOnUiThread {
+            if (isAdded && mWasInit) {
+                binding.photoHdrBadge.beVisibleIf(isHdr)
+                binding.photoHdrBadge.alpha = if (mIsFullscreen && mStoredHideExtendedDetails) 0f else 1f
+                updateHdrBadgePosition()
+            }
+        }
+    }
+
+    // the pager toolbar is transparent and overlays the content, push the HDR badge below it,
+    // and below the live photo badge when both are shown at the top left
+    private fun updateHdrBadgePosition() {
+        var topMargin = requireContext().statusBarHeight + requireContext().actionBarHeight +
+            resources.getDimension(com.simplemobiletools.commons.R.dimen.medium_margin).toInt()
+        if (binding.photoMotionBadge.isVisible()) {
+            topMargin += resources.getDimension(R.dimen.motion_photo_badge_size_big).toInt() +
+                resources.getDimension(com.simplemobiletools.commons.R.dimen.medium_margin).toInt()
+        }
+
+        val layoutParams = binding.photoHdrBadge.layoutParams as RelativeLayout.LayoutParams
+        layoutParams.topMargin = topMargin
+        binding.photoHdrBadge.layoutParams = layoutParams
+    }
+
+    private fun maybeAutoPlayMotionVideo() {
+        if (mIsMotionPhoto && mIsFragmentVisible && mWasInit && context?.config?.autoPlayMotionPhotos == true) {
+            playMotionVideo()
+        }
+    }
+
+    private fun playMotionVideo() {
+        if (mIsPlayingMotionVideo) {
+            return
+        }
+
+        ensureBackgroundThread {
+            val context = context ?: return@ensureBackgroundThread
+            val videoFile = MotionPhotoHelper.extractMotionVideo(context, mMedium.path)
+            activity?.runOnUiThread {
+                if (videoFile == null) {
+                    activity?.toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
+                } else {
+                    startMotionPlayback(videoFile)
+                }
+            }
+        }
+    }
+
+    // plays the motion video part right inside the photo view, the still image stays visible behind it;
+    // when the video ends (or the user taps it), the still image is shown again
+    private fun startMotionPlayback(videoFile: File) {
+        if (mIsPlayingMotionVideo || context == null) {
+            return
+        }
+
+        mIsPlayingMotionVideo = true
+        val player = ExoPlayer.Builder(requireContext()).build()
+        mExoPlayer = player
+        player.setVideoTextureView(binding.motionPhotoTexture)
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                when (playbackState) {
+                    Player.STATE_ENDED -> stopMotionPlayback()
+                    Player.STATE_READY -> player.play()
+                }
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                updateMotionVideoAspectRatio(videoSize)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                stopMotionPlayback()
+            }
+        })
+
+        player.repeatMode = Player.REPEAT_MODE_OFF
+        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(videoFile)))
+        player.prepare()
+        binding.motionPhotoVideoHolder.beVisible()
+        binding.motionPhotoVideoHolder.setOnClickListener { stopMotionPlayback() }
+        player.playWhenReady = true
+    }
+
+    // a bare TextureView would stretch the video over the whole view, resize it to the real video aspect ratio
+    private fun updateMotionVideoAspectRatio(videoSize: VideoSize) {
+        val holder = binding.motionPhotoVideoHolder
+        if (holder.width == 0 || holder.height == 0) {
+            if (mIsPlayingMotionVideo) {
+                holder.post { updateMotionVideoAspectRatio(videoSize) }
+            }
+            return
+        }
+
+        var width = videoSize.width * videoSize.pixelWidthHeightRatio
+        val height = videoSize.height.toFloat()
+
+        if (width <= 0f || height <= 0f) {
+            return
+        }
+
+        val scale = minOf(holder.width / width, holder.height / height)
+        val textureParams = binding.motionPhotoTexture.layoutParams
+        textureParams.width = (width * scale).toInt()
+        textureParams.height = (height * scale).toInt()
+        binding.motionPhotoTexture.layoutParams = textureParams
+    }
+
+    private fun stopMotionPlayback() {
+        mIsPlayingMotionVideo = false
+        mExoPlayer?.apply {
+            stop()
+            release()
+        }
+        mExoPlayer = null
+
+        if (mWasInit) {
+            binding.motionPhotoVideoHolder.beGone()
+        }
+    }
+
+    // HyperOS and some other ROMs only composite the gain map while the window is in HDR display
+    // mode, so it has to be requested for as long as a gain map image is the visible one. SDR
+    // fragments never touch it, so only gain map fragments flip it back and forth.
+    private fun setWindowHdrColorMode(hdr: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            activity?.window?.colorMode = if (hdr) ActivityInfo.COLOR_MODE_HDR else ActivityInfo.COLOR_MODE_DEFAULT
+        }
+        forceRedraw()
+    }
+
+    // switching the display color mode alone does not invalidate the already rendered frame, the
+    // compositor would keep showing the stale SDR one without an explicit redraw
+    fun forceRedraw() {
+        if (!mWasInit) {
+            return
+        }
+
+        binding.gesturesView.invalidate()
+        binding.gesturesView.postDelayed({
+            if (mWasInit) {
+                binding.gesturesView.invalidate()
+            }
+        }, 250)
+    }
+
+    fun isHdrGainMapImage() = mIsHdrGainMap
+
     private fun getImageOrientation(): Int {
         val defaultOrientation = -1
         var orient = defaultOrientation
@@ -872,6 +1202,9 @@ class PhotoFragment : ViewPagerFragment() {
     override fun fullscreenToggled(isFullscreen: Boolean) {
         this.mIsFullscreen = isFullscreen
         binding.apply {
+            // the HDR badge hides together with the extended details, leaving only the image
+            photoHdrBadge.animate().alpha(if (isFullscreen && mStoredHideExtendedDetails) 0f else 1f)
+
             photoDetails.apply {
                 if (mStoredShowExtendedDetails && isVisible() && context != null && resources != null) {
                     animate().y(getExtendedDetailsY(height))

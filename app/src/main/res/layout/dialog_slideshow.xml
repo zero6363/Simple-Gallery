@@ -30,7 +30,7 @@
             android:layout_alignParentEnd="true"
             android:layout_marginTop="@dimen/normal_margin"
             android:layout_marginEnd="@dimen/big_margin"
-            android:hint="@string/seconds_raw">
+            android:hint="@string/milliseconds_raw">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/interval_value"
@@ -39,7 +39,7 @@
                 android:gravity="center"
                 android:imeOptions="actionDone"
                 android:inputType="number"
-                android:maxLength="5"
+                android:maxLength="6"
                 android:textCursorDrawable="@null"
                 android:textSize="@dimen/bigger_text_size" />
 

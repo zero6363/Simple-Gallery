@@ -20,6 +20,7 @@ import com.simplemobiletools.gallery.pro.helpers.GridSpacingItemDecoration
 import com.simplemobiletools.gallery.pro.helpers.MediaFetcher
 import com.simplemobiletools.gallery.pro.helpers.PATH
 import com.simplemobiletools.gallery.pro.helpers.SHOW_ALL
+import com.simplemobiletools.gallery.pro.helpers.SystemTrashHelper
 import com.simplemobiletools.gallery.pro.interfaces.MediaOperationsListener
 import com.simplemobiletools.gallery.pro.models.Medium
 import com.simplemobiletools.gallery.pro.models.ThumbnailItem
@@ -245,15 +246,34 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
-        if (config.useRecycleBin && !skipRecycleBin && !filtered.first().path.startsWith(recycleBinPath)) {
+        val firstPath = filtered.first().path
+        val alreadySystemTrashed = SystemTrashHelper.getCachedIsTrashed(firstPath)
+        if (config.useRecycleBin && !skipRecycleBin && !alreadySystemTrashed && !firstPath.startsWith(recycleBinPath)) {
             val movingItems = resources.getQuantityString(com.simplemobiletools.commons.R.plurals.moving_items_into_bin, filtered.size, filtered.size)
             toast(movingItems)
 
-            movePathsInRecycleBin(filtered.map { it.path } as ArrayList<String>) {
-                if (it) {
-                    deleteFilteredFiles(filtered)
-                } else {
+            movePathsToRecycleBin(filtered.map { it.path } as ArrayList<String>) { usedSystemRecycleBin, success ->
+                if (!success) {
                     toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
+                } else if (usedSystemRecycleBin) {
+                    // the OS already hides the files everywhere, only the visible list has to be refreshed
+                    mAllMedia.removeAll { filtered.map { it.path }.contains((it as? Medium)?.path) }
+                    refreshItems()
+                } else {
+                    deleteFilteredFiles(filtered)
+                }
+            }
+        } else if (alreadySystemTrashed) {
+            // deleting from the recycle bin screen, purge the system recycled files for good
+            val deletingItems = resources.getQuantityString(com.simplemobiletools.commons.R.plurals.deleting_items, filtered.size, filtered.size)
+            toast(deletingItems)
+
+            deleteSystemRecycledPaths(filtered.map { it.path } as ArrayList<String>) { success ->
+                if (!success) {
+                    toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
+                } else {
+                    mAllMedia.removeAll { filtered.map { it.path }.contains((it as? Medium)?.path) }
+                    refreshItems()
                 }
             }
         } else {

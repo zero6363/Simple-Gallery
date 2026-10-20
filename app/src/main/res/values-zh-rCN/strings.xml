@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">简单图库</string>
-    <string name="app_launcher_name">图库</string>
+    <string name="app_name">简单图库2</string>
+    <string name="app_launcher_name">图库2</string>
     <string name="edit">编辑</string>
     <string name="open_camera">打开相机</string>
     <string name="hidden">（已隐藏）</string>
@@ -42,6 +42,7 @@
     <string name="raw_images">RAW 图片</string>
     <string name="svgs">SVG 矢量图</string>
     <string name="portraits">人像</string>
+    <string name="live_photo">实况照片</string>
     <string name="no_media_with_filters">没有媒体文件匹配选定的筛选条件。</string>
     <string name="change_filters_underlined"><u>更改筛选条件</u></string>
     <!-- Hide / Exclude -->
@@ -128,6 +129,7 @@
     <!-- Slideshow -->
     <string name="slideshow">幻灯片</string>
     <string name="interval">间隔</string>
+    <string name="milliseconds_raw">毫秒</string>
     <string name="include_photos">包含照片</string>
     <string name="include_videos">包含视频</string>
     <string name="include_gifs">包含GIF</string>
@@ -161,6 +163,7 @@
     <string name="show_folder_name">显示文件夹名称</string>
     <!-- Settings -->
     <string name="autoplay_videos">自动播放视频</string>
+    <string name="auto_play_motion_photos">自动播放实况照片</string>
     <string name="remember_last_video_position">记住上次视频播放位置</string>
     <string name="loop_videos">循环播放视频</string>
     <string name="animate_gifs">GIF 缩略图</string>

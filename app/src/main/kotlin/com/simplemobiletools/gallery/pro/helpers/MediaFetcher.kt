@@ -43,7 +43,7 @@ class MediaFetcher(val context: Context) {
                 curMedia.addAll(newMedia)
             }
         } else {
-            if (curPath != FAVORITES && curPath != RECYCLE_BIN && isRPlus() && !isExternalStorageManager()) {
+            if (curPath != FAVORITES && curPath != RECYCLE_BIN && curPath != SYSTEM_RECYCLE_BIN && isRPlus() && !isExternalStorageManager()) {
                 if (android11Files?.containsKey(curPath.toLowerCase()) == true) {
                     curMedia.addAll(android11Files[curPath.toLowerCase()]!!)
                 } else if (android11Files == null) {
@@ -253,7 +253,7 @@ class MediaFetcher(val context: Context) {
         val config = context.config
         val includedFolders = config.includedFolders
         val OTGPath = config.OTGPath
-        val foldersToScan = config.everShownFolders.filter { it == FAVORITES || it == RECYCLE_BIN || context.getDoesFilePathExist(it, OTGPath) }.toHashSet()
+        val foldersToScan = config.everShownFolders.filter { it == FAVORITES || it == RECYCLE_BIN || (context.getDoesFilePathExist(it, OTGPath) && it != SYSTEM_RECYCLE_BIN) }.toHashSet()
 
         cursor.use {
             if (cursor.moveToFirst()) {
@@ -291,10 +291,11 @@ class MediaFetcher(val context: Context) {
     ): ArrayList<Medium> {
         val media = ArrayList<Medium>()
         val isRecycleBin = folder == RECYCLE_BIN
-        val deletedMedia = if (isRecycleBin) {
-            context.getUpdatedDeletedMedia()
-        } else {
-            ArrayList()
+        val isSystemRecycleBin = folder == SYSTEM_RECYCLE_BIN
+        val recycleBinMedia = when {
+            isRecycleBin -> context.getRecycleBinMedia()
+            isSystemRecycleBin -> context.getSystemRecycleBinMedia()
+            else -> ArrayList()
         }
 
         val config = context.config
@@ -306,7 +307,7 @@ class MediaFetcher(val context: Context) {
 
         val files = when (folder) {
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }.toMutableList() as ArrayList<File>
-            RECYCLE_BIN -> deletedMedia.map { File(it.path) }.toMutableList() as ArrayList<File>
+            RECYCLE_BIN, SYSTEM_RECYCLE_BIN -> recycleBinMedia.map { File(it.path) }.toMutableList() as ArrayList<File>
             else -> File(folder).listFiles()?.toMutableList() ?: return media
         }
 
@@ -317,6 +318,17 @@ class MediaFetcher(val context: Context) {
             }
 
             var path = file.absolutePath
+
+            // system recycled files (MediaStore trash) stay on the storage until the OS purges them,
+            // hide them from regular folders and favorites, and drop recycled ones the OS already removed
+            if (isRecycleBin || isSystemRecycleBin) {
+                if (!path.startsWith(context.recycleBinPath) && !SystemTrashHelper.isTrashed(context, path)) {
+                    continue
+                }
+            } else if (SystemTrashHelper.isTrashed(context, path)) {
+                continue
+            }
+
             var isPortrait = false
             val isImage = path.isImageFast()
             val isVideo = if (isImage) false else path.isVideoFast()
@@ -356,8 +368,10 @@ class MediaFetcher(val context: Context) {
                 continue
 
             val filename = file.name
-            if (!showHidden && filename.startsWith('.'))
+            // system recycled files are renamed by the OS like ".trashed-123-photo.jpg", keep them visible in the recycle bins
+            if (!showHidden && filename.startsWith('.') && !isRecycleBin && !isSystemRecycleBin) {
                 continue
+            }
 
             var size = 0L
             if (checkProperFileSize || checkFileExistence) {
@@ -376,8 +390,8 @@ class MediaFetcher(val context: Context) {
                 continue
             }
 
-            if (isRecycleBin) {
-                deletedMedia.firstOrNull { it.path == path }?.apply {
+            if (isRecycleBin || isSystemRecycleBin) {
+                recycleBinMedia.firstOrNull { it.path == path }?.apply {
                     media.add(this)
                 }
             } else {

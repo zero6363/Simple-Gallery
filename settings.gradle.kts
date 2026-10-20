@@ -10,9 +10,12 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        mavenLocal()
         google()
-        jcenter()
         mavenCentral()
+        // mirrors the artifacts that were only ever published to the now-defunct JCenter
+        maven(url = "https://maven.aliyun.com/repository/jcenter")
+        jcenter()
         maven { setUrl("https://jitpack.io") }
         maven(url = "https://artifactory.img.ly/artifactory/imgly")
     }
@@ -22,9 +25,10 @@ rootProject.name = "Simple-Gallery"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 include(":app")
 
-// TODO: This will be deprecated in future. Migrate to the newer `pluginManagement { includeBuild() }` mechanism instead of explicitly substituting dependency.
-/*includeBuild("../Simple-Commons") {
+// Build Simple-Commons from the local checkout at the exact commit the version catalog pins,
+// because its JitPack build is broken (see .tool/Simple-Commons).
+includeBuild(".tool/Simple-Commons") {
     dependencySubstitution {
         substitute(module("com.github.SimpleMobileTools:Simple-Commons")).using(project(":commons"))
     }
-}*/
+}

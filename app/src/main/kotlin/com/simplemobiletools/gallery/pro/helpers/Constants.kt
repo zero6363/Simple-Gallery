@@ -14,6 +14,7 @@ const val EXCLUDED_PASSWORD_HASH = "excluded_password_hash"
 const val EXCLUDED_PROTECTION_TYPE = "excluded_protection_type"
 const val IS_THIRD_PARTY_INTENT = "is_third_party_intent"
 const val AUTOPLAY_VIDEOS = "autoplay_videos"
+const val AUTO_PLAY_MOTION_PHOTOS = "auto_play_motion_photos"
 const val REMEMBER_LAST_VIDEO_POSITION = "remember_last_video_position"
 const val LOOP_VIDEOS = "loop_videos"
 const val OPEN_VIDEOS_ON_SEPARATE_SCREEN = "open_videos_on_separate_screen"
@@ -62,6 +63,8 @@ const val VISIBLE_BOTTOM_ACTIONS = "visible_bottom_actions"
 const val WERE_FAVORITES_PINNED = "were_favorites_pinned"
 const val WAS_RECYCLE_BIN_PINNED = "was_recycle_bin_pinned"
 const val USE_RECYCLE_BIN = "use_recycle_bin"
+const val USE_SYSTEM_RECYCLE_BIN = "use_system_recycle_bin"
+const val SYSTEM_RECYCLE_BIN = "system_recycle_bin"
 const val GROUP_BY = "group_by"
 const val EVER_SHOWN_FOLDERS = "ever_shown_folders"
 const val SHOW_RECYCLE_BIN_AT_FOLDERS = "show_recycle_bin_at_folders"
@@ -99,15 +102,20 @@ const val AVOID_SHOWING_ALL_FILES_PROMPT = "avoid_showing_all_files_prompt"
 const val SEARCH_ALL_FILES_BY_DEFAULT = "search_all_files_by_default"
 const val LAST_EXPORTED_FAVORITES_FOLDER = "last_exported_favorites_folder"
 
-// slideshow
+// slideshow, the interval is stored in milliseconds since v6.28.15
 const val SLIDESHOW_INTERVAL = "slideshow_interval"
+const val SLIDESHOW_INTERVAL_MS = "slideshow_interval_ms"
 const val SLIDESHOW_INCLUDE_VIDEOS = "slideshow_include_videos"
 const val SLIDESHOW_INCLUDE_GIFS = "slideshow_include_gifs"
 const val SLIDESHOW_RANDOM_ORDER = "slideshow_random_order"
 const val SLIDESHOW_MOVE_BACKWARDS = "slideshow_move_backwards"
 const val SLIDESHOW_ANIMATION = "slideshow_animation"
 const val SLIDESHOW_LOOP = "loop_slideshow"
-const val SLIDESHOW_DEFAULT_INTERVAL = 5
+const val SLIDESHOW_DEFAULT_INTERVAL = 5000
+// fully custom interval, the floor only guards against zero/negative values coming from
+// settings import or migration; the slideshow dialog itself rejects them too
+const val SLIDESHOW_MIN_INTERVAL = 1
+const val SLIDESHOW_MAX_INTERVAL = 999999
 const val SLIDESHOW_SLIDE_DURATION = 500L
 const val SLIDESHOW_FADE_DURATION = 1500L
 const val SLIDESHOW_START_ON_ENTER = "slideshow_start_on_enter"

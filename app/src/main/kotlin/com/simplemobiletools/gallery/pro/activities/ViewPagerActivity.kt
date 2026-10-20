@@ -8,6 +8,8 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.ShortcutInfo
+import android.os.SystemClock
+import android.util.Log
 import android.content.pm.ShortcutManager
 import android.content.res.Configuration
 import android.database.Cursor
@@ -68,6 +70,7 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
     private var mShowAll = false
     private var mIsSlideshowActive = false
     private var mPrevHashcode = 0
+    private var pagerAdapter: MyPagerAdapter? = null
 
     private var mSlideshowHandler = Handler()
     private var mSlideshowInterval = SLIDESHOW_DEFAULT_INTERVAL
@@ -75,6 +78,7 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
     private var mSlideshowMedia = mutableListOf<Medium>()
     private var mAreSlideShowMediaVisible = false
     private var mRandomSlideshowStopped = false
+    private var mLastSwipeStartedAt = 0L
 
     private var mIsOrientationLocked = false
 
@@ -138,11 +142,13 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
 
     override fun onPause() {
         super.onPause()
-        stopSlideshow()
+        stopSlideshow("onPause")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        // fragments no longer reset this on their own, it raced with paging; do it once on exit
+        window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
         if (intent.extras?.containsKey(IS_VIEW_INTENT) == true) {
             config.temporarilyShowHidden = false
         }
@@ -406,6 +412,17 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
         }
 
         window.decorView.setOnSystemUiVisibilityChangeListener { visibility ->
+            // while the slideshow runs it owns the fullscreen state: transient bar reveals (toasts,
+            // notifications, edge gestures) must not kill it. If the user tapped the bars visible,
+            // leave them; if they should be hidden, re-assert fullscreen on transient reveals.
+            if (mIsSlideshowActive) {
+                if (mIsFullScreen) {
+                    logSlideshow("systemUiVisibility changed during slideshow ($visibility), re-asserting fullscreen")
+                    hideSystemUI(true)
+                }
+                return@setOnSystemUiVisibilityChangeListener
+            }
+
             mIsFullScreen = if (isNougatPlus() && isInMultiWindowMode) {
                 visibility and View.SYSTEM_UI_FLAG_LOW_PROFILE != 0
             } else if (visibility and View.SYSTEM_UI_FLAG_LOW_PROFILE == 0) {
@@ -467,7 +484,8 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
     }
 
     private fun updatePagerItems(media: MutableList<Medium>) {
-        val pagerAdapter = MyPagerAdapter(this, supportFragmentManager, media)
+        pagerAdapter = MyPagerAdapter(this, supportFragmentManager, media)
+        val pagerAdapter = pagerAdapter ?: return
         if (!isDestroyed) {
             pagerAdapter.shouldInitFragment = mPos < 5
             binding.viewPager.apply {
@@ -506,8 +524,17 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
                     mSlideshowInterval = config.slideshowInterval
                     mSlideshowMoveBackwards = config.slideshowMoveBackwards
                     mIsSlideshowActive = true
+                    mLastSwipeStartedAt = 0L
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     scheduleSwipe()
+                    // no toast here: on some ROMs a toast while immersed in fullscreen triggers a
+                    // system UI visibility change, which used to kill the slideshow right away
+                    logSlideshow(
+                        "started: interval=$mSlideshowInterval, animation=${config.slideshowAnimation}, " +
+                            "count=${mSlideshowMedia.size}, includeVideos=${config.slideshowIncludeVideos}, " +
+                            "includeGIFs=${config.slideshowIncludeGIFs}, random=${config.slideshowRandomOrder}, " +
+                            "startPos=$mPos"
+                    )
                 }
             }
         }
@@ -516,6 +543,7 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
     private fun goToNextMedium(forward: Boolean) {
         val oldPosition = binding.viewPager.currentItem
         val newPosition = if (forward) oldPosition + 1 else oldPosition - 1
+        logSlideshow("goToNextMedium: forward=$forward, old=$oldPosition, new=$newPosition, count=${binding.viewPager.adapter?.count}")
         if (newPosition == -1 || newPosition > binding.viewPager.adapter!!.count - 1) {
             slideshowEnded(forward)
         } else {
@@ -532,7 +560,8 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
                     try {
                         binding.viewPager.endFakeDrag()
                     } catch (ignored: Exception) {
-                        stopSlideshow()
+                        logSlideshow("animatePagerTransition: endFakeDrag failed")
+                        stopSlideshow("endFakeDragException")
                     }
 
                     if (binding.viewPager.currentItem == oldPosition) {
@@ -567,17 +596,24 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
                     try {
                         binding.viewPager.fakeDragBy(dragOffset * (if (forward) -1f else 1f))
                     } catch (e: Exception) {
-                        stopSlideshow()
+                        logSlideshow("animatePagerTransition: fakeDragBy failed: ${e.message}")
+                        stopSlideshow("fakeDragByException")
                     }
                 }
             }
         })
 
-        binding.viewPager.beginFakeDrag()
-        animator.start()
+        logSlideshow("animatePagerTransition: forward=$forward, from=$oldPosition, duration=${animator.duration}")
+        if (binding.viewPager.beginFakeDrag()) {
+            animator.start()
+        } else {
+            logSlideshow("animatePagerTransition: beginFakeDrag failed, falling back to instant flip")
+            goToNextMedium(forward)
+        }
     }
 
     private fun slideshowEnded(forward: Boolean) {
+        logSlideshow("slideshowEnded: forward=$forward, loop=${config.loopSlideshow}")
         if (config.loopSlideshow) {
             if (forward) {
                 binding.viewPager.setCurrentItem(0, false)
@@ -585,12 +621,12 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
                 binding.viewPager.setCurrentItem(binding.viewPager.adapter!!.count - 1, false)
             }
         } else {
-            stopSlideshow()
-            toast(R.string.slideshow_ended)
+            stopSlideshow("ended")
         }
     }
 
-    private fun stopSlideshow() {
+    private fun stopSlideshow(reason: String) {
+        logSlideshow("stopSlideshow: reason=$reason, wasActive=$mIsSlideshowActive")
         if (mIsSlideshowActive) {
             binding.viewPager.setPageTransformer(false, DefaultPageTransformer())
             mIsSlideshowActive = false
@@ -598,6 +634,9 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
             mSlideshowHandler.removeCallbacksAndMessages(null)
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             mAreSlideShowMediaVisible = false
+
+            // surface why the slideshow died, e.g. a colorMode change pausing the activity on some ROMs
+            toast("${getString(R.string.slideshow_ended)}: $reason")
 
             if (config.slideshowRandomOrder) {
                 mRandomSlideshowStopped = true
@@ -608,19 +647,49 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
     private fun scheduleSwipe() {
         mSlideshowHandler.removeCallbacksAndMessages(null)
         if (mIsSlideshowActive) {
-            if (getCurrentMedium()!!.isImage() || getCurrentMedium()!!.isGIF() || getCurrentMedium()!!.isPortrait()) {
+            val medium = getCurrentMedium()!!
+            if (medium.isImage() || medium.isGIF() || medium.isPortrait()) {
+                val delay = getSlideshowSwipeDelay()
+                logSlideshow("scheduleSwipe: pos=$mPos, image/GIF, interval=$mSlideshowInterval, delay=$delay")
                 mSlideshowHandler.postDelayed({
                     if (mIsSlideshowActive && !isDestroyed) {
                         swipeToNextMedium()
                     }
-                }, mSlideshowInterval * 1000L)
+                }, delay)
             } else {
+                logSlideshow("scheduleSwipe: pos=$mPos, video, playing it")
                 (getCurrentFragment() as? VideoFragment)!!.playVideo()
             }
         }
     }
 
+    // the configured interval covers the transition animation: the next swipe fires when the
+    // running transition ends (or later, if the interval is longer), so the per-picture cadence
+    // is max(interval, animation duration). Re-arms that come from a manual swipe measure a
+    // stale timestamp, their elapsed time exceeds the total and they get a full interval.
+    private fun getSlideshowSwipeDelay(): Long {
+        val animationDuration = when (config.slideshowAnimation) {
+            SLIDESHOW_ANIMATION_SLIDE -> SLIDESHOW_SLIDE_DURATION
+            SLIDESHOW_ANIMATION_FADE -> SLIDESHOW_FADE_DURATION
+            else -> 0L
+        }
+
+        val total = maxOf(mSlideshowInterval.toLong(), animationDuration)
+        return if (mLastSwipeStartedAt == 0L) {
+            mSlideshowInterval.toLong()
+        } else {
+            val elapsed = SystemClock.uptimeMillis() - mLastSwipeStartedAt
+            if (elapsed >= total) total else total - elapsed
+        }.coerceAtLeast(50L)
+    }
+
+    private fun logSlideshow(message: String) {
+        Log.d("SlideshowDebug", message)
+    }
+
     private fun swipeToNextMedium() {
+        mLastSwipeStartedAt = SystemClock.uptimeMillis()
+        logSlideshow("swipeToNextMedium: animation=${config.slideshowAnimation}, forward=${!mSlideshowMoveBackwards}")
         if (config.slideshowAnimation == SLIDESHOW_ANIMATION_NONE) {
             goToNextMedium(!mSlideshowMoveBackwards)
         } else {
@@ -1118,8 +1187,16 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
                     onPageSelected(0)
                 }
 
-                movePathsInRecycleBin(arrayListOf(path)) {
-                    if (it) {
+                movePathsToRecycleBin(arrayListOf(path)) { usedSystemRecycleBin, success ->
+                    if (!success) {
+                        toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
+                    } else if (usedSystemRecycleBin) {
+                        // the OS already hides the file everywhere, keep it ignored in the pager until refetched
+                        if (media.isEmpty()) {
+                            deleteDirectoryIfEmpty()
+                            finish()
+                        }
+                    } else {
                         tryDeleteFileDirItem(fileDirItem, false, false) {
                             mIgnoredPaths.remove(fileDirItem.path)
                             if (media.isEmpty()) {
@@ -1127,8 +1204,6 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
                                 finish()
                             }
                         }
-                    } else {
-                        toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
                     }
                 }
             }
@@ -1155,11 +1230,25 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
                 onPageSelected(0)
             }
 
-            tryDeleteFileDirItem(fileDirItem, false, true) {
+            val deletionCallback: (Boolean) -> Unit = {
                 mIgnoredPaths.remove(fileDirItem.path)
                 if (media.isEmpty()) {
                     deleteDirectoryIfEmpty()
                     finish()
+                }
+            }
+
+            if (SystemTrashHelper.getCachedIsTrashed(fileDirItem.path)) {
+                // the file is currently system recycled, its media store row is invisible to regular lookups
+                deleteSystemRecycledPaths(arrayListOf(fileDirItem.path)) { success ->
+                    if (!success) {
+                        toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
+                    }
+                    deletionCallback(success)
+                }
+            } else {
+                tryDeleteFileDirItem(fileDirItem, false, true) {
+                    deletionCallback(it)
                 }
             }
         }
@@ -1305,6 +1394,21 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
     }
 
     override fun fragmentClicked() {
+        // a tap must not toggle the system UI the normal way while the slideshow runs, leaving
+        // fullscreen would stop the playback; instead it just shows/hides the top filename bar
+        // and the bottom actions, the slideshow keeps running behind them
+        if (mIsSlideshowActive) {
+            mIsFullScreen = !mIsFullScreen
+            logSlideshow("fragmentClicked during slideshow, fullscreen->$mIsFullScreen")
+            if (mIsFullScreen) {
+                hideSystemUI(true)
+            } else {
+                showSystemUI(true)
+            }
+            fullscreenToggled()
+            return
+        }
+
         mIsFullScreen = !mIsFullScreen
         checkSystemUI()
         fullscreenToggled()
@@ -1360,7 +1464,7 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
         if (mIsFullScreen) {
             hideSystemUI(true)
         } else {
-            stopSlideshow()
+            stopSlideshow("checkSystemUI")
             showSystemUI(true)
         }
     }
@@ -1413,12 +1517,33 @@ class ViewPagerActivity : SimpleActivity(), ViewPager.OnPageChangeListener, View
             updateActionbarTitle()
             refreshMenuItems()
             scheduleSwipe()
+            // flipping window colorMode mid-slideshow can pause/recreate the activity on some ROMs
+            // (e.g. HyperOS), which kills the slideshow right after its first swipe
+            if (!mIsSlideshowActive) {
+                updateHdrColorMode()
+            }
+        }
+    }
+
+    // gain map rendering on some ROMs (e.g. HyperOS) only happens while the window is in HDR display
+    // mode, so the mode has to follow the currently selected page. Never write it while the current
+    // fragment is missing (mid-recreation), its own load path asserts the mode once it knows better.
+    fun updateHdrColorMode() {
+        val photoFragment = pagerAdapter?.getCurrentFragment(mPos) as? PhotoFragment ?: return
+        val target = if (photoFragment.isHdrGainMapImage()) ActivityInfo.COLOR_MODE_HDR else ActivityInfo.COLOR_MODE_DEFAULT
+        if (window.colorMode != target) {
+            window.colorMode = target
+            photoFragment.forceRedraw()
         }
     }
 
     override fun onPageScrollStateChanged(state: Int) {
         if (state == ViewPager.SCROLL_STATE_IDLE && getCurrentMedium() != null) {
             checkOrientation()
+            // the mode can get flipped while the pages settle, re-assert it once the swipe is done
+            if (!mIsSlideshowActive) {
+                updateHdrColorMode()
+            }
         }
     }
 

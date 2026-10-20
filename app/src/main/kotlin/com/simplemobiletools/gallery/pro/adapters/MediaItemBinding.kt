@@ -15,6 +15,8 @@ interface MediaItemBinding {
     val favorite: ImageView
     val playPortraitOutline: ImageView?
     val fileType: TextView?
+    val motionPhotoBadge: ImageView?
+    val hdrBadge: TextView?
     val mediumName: TextView
     val videoDuration: TextView?
     val mediumCheck: ImageView
@@ -27,6 +29,8 @@ class PhotoListMediaItemBinding(val binding: PhotoItemListBinding) : MediaItemBi
     override val favorite: ImageView = binding.favorite
     override val playPortraitOutline: ImageView? = null
     override val fileType: TextView = binding.fileType
+    override val motionPhotoBadge: ImageView = binding.motionPhotoBadge
+    override val hdrBadge: TextView = binding.hdrBadge
     override val mediumName: TextView = binding.mediumName
     override val videoDuration: TextView? = null
     override val mediumCheck: ImageView = binding.mediumCheck
@@ -41,6 +45,8 @@ class PhotoGridMediaItemBinding(val binding: PhotoItemGridBinding) : MediaItemBi
     override val favorite: ImageView = binding.favorite
     override val playPortraitOutline: ImageView? = null
     override val fileType: TextView = binding.fileType
+    override val motionPhotoBadge: ImageView = binding.motionPhotoBadge
+    override val hdrBadge: TextView = binding.hdrBadge
     override val mediumName: TextView = binding.mediumName
     override val videoDuration: TextView? = null
     override val mediumCheck: ImageView = binding.mediumCheck
@@ -55,6 +61,8 @@ class VideoListMediaItemBinding(val binding: VideoItemListBinding) : MediaItemBi
     override val favorite: ImageView = binding.favorite
     override val playPortraitOutline: ImageView? = binding.playPortraitOutline
     override val fileType: TextView? = null
+    override val motionPhotoBadge: ImageView? = null
+    override val hdrBadge: TextView = binding.hdrBadge
     override val mediumName: TextView = binding.mediumName
     override val videoDuration: TextView = binding.videoDuration
     override val mediumCheck: ImageView = binding.mediumCheck
@@ -69,6 +77,8 @@ class VideoGridMediaItemBinding(val binding: VideoItemGridBinding) : MediaItemBi
     override val favorite: ImageView = binding.favorite
     override val playPortraitOutline: ImageView = binding.playPortraitOutline
     override val fileType: TextView? = null
+    override val motionPhotoBadge: ImageView? = null
+    override val hdrBadge: TextView = binding.hdrBadge
     override val mediumName: TextView = binding.mediumName
     override val videoDuration: TextView = binding.videoDuration
     override val mediumCheck: ImageView = binding.mediumCheck

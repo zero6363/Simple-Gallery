@@ -1,0 +1,5 @@
+• Full HDR support: Ultra HDR and ISO 21496-1 gain maps, HDR10, HLG, Dolby Vision and HDR PNG, with HDR badges and true HDR display on Android 14+
+• Live photos: play motion photos from Google, Samsung and paired-video formats, with optional auto-play
+• System recycle bin on Android 11+: view, restore or permanently delete trashed items
+• Slideshow intervals down to milliseconds
+• Renamed to Simple Gallery 2, installs alongside the original

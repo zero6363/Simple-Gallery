@@ -714,7 +714,11 @@ fun Context.getCachedMedia(path: String, getVideosOnly: Boolean = false, getImag
         }
 
         if (path == RECYCLE_BIN) {
-            media.addAll(getUpdatedDeletedMedia())
+            media.addAll(getRecycleBinMedia())
+        }
+
+        if (path == SYSTEM_RECYCLE_BIN) {
+            media.addAll(getSystemRecycleBinMedia())
         }
 
         if (config.filterMedia and TYPE_PORTRAITS != 0) {
@@ -737,7 +741,9 @@ fun Context.getCachedMedia(path: String, getVideosOnly: Boolean = false, getImag
             }
         }
 
-        if (!shouldShowHidden) {
+        // the OS renames system recycled files like ".trashed-123-photo.jpg", do not treat them as
+        // hidden files inside the recycle bins
+        if (!shouldShowHidden && path != RECYCLE_BIN && path != SYSTEM_RECYCLE_BIN) {
             media = media.filter { !it.path.contains("/.") } as ArrayList<Medium>
         }
 
@@ -768,6 +774,8 @@ fun Context.getCachedMedia(path: String, getVideosOnly: Boolean = false, getImag
                 media.filter { !getDoesFilePathExist(it.path, OTGPath) }.forEach {
                     if (it.path.startsWith(recycleBinPath)) {
                         deleteDBPath(it.path)
+                    } else if (isRPlus() && SystemTrashHelper.isTrashed(this, it.path)) {
+                        // system recycled, the OS just renamed the file on disk, keep the database row
                     } else {
                         mediaToDelete.add(it)
                     }
@@ -861,9 +869,62 @@ fun Context.getUpdatedDeletedMedia(): ArrayList<Medium> {
     }
 
     media.forEach {
-        it.path = File(recycleBinPath, it.path.removePrefix(RECYCLE_BIN)).toString()
+        // system recycled items (Android 11+) are stored in the database at their original path,
+        // only the app recycled ones carry the "recycle_bin" prefix and need it rewritten
+        if (it.path.startsWith(RECYCLE_BIN)) {
+            it.path = File(recycleBinPath, it.path.removePrefix(RECYCLE_BIN)).toString()
+        }
     }
     return media
+}
+
+// the recycle bin contents: the app recycled files from the database plus everything recycled at the
+// system level (MediaStore trash, Android 11+), regardless of which app recycled it
+fun Context.getRecycleBinMedia(): ArrayList<Medium> {
+    val media = getUpdatedDeletedMedia()
+    if (isRPlus()) {
+        SystemTrashHelper.getTrashedItems(this).values.forEach { item ->
+            val file = File(item.diskPath)
+            val originalPath = SystemTrashHelper.getOriginalPath(item)
+            val existingRow = media.firstOrNull { it.path.equals(originalPath, ignoreCase = true) }
+            if (existingRow != null) {
+                // the OS renames trashed files on disk, keep the database row pointing at the real file
+                if (!existingRow.path.equals(item.diskPath, ignoreCase = true)) {
+                    val deletedTS = existingRow.deletedTS
+                    existingRow.path = item.diskPath
+                    mediaDB.updateDeleted(item.diskPath, deletedTS, originalPath)
+                }
+            } else if (media.none { it.path.equals(item.diskPath, ignoreCase = true) }) {
+                media.add(item.toMedium())
+            }
+        }
+    }
+    return media
+}
+
+// only the items recycled at the system level, shown at the dedicated system recycle bin screen
+fun Context.getSystemRecycleBinMedia(): ArrayList<Medium> {
+    val media = ArrayList<Medium>()
+    if (isRPlus()) {
+        SystemTrashHelper.getTrashedItemList(this).forEach { item ->
+            media.add(item.toMedium())
+        }
+    }
+    return media
+}
+
+private fun SystemTrashHelper.TrashedItem.toMedium(): Medium {
+    val file = File(diskPath)
+    val type = when {
+        diskPath.isVideoFast() -> TYPE_VIDEOS
+        diskPath.isImageFast() -> TYPE_IMAGES
+        diskPath.isGif() -> TYPE_GIFS
+        diskPath.isRawFast() -> TYPE_RAWS
+        diskPath.isSvg() -> TYPE_SVGS
+        else -> TYPE_IMAGES
+    }
+
+    return Medium(null, displayName, diskPath, file.parent ?: "", file.lastModified(), file.lastModified(), file.length(), type, 0, false, 0L, 0L)
 }
 
 fun Context.deleteDBPath(path: String) {

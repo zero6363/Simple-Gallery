@@ -1,6 +1,7 @@
 package com.simplemobiletools.gallery.pro.activities
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
@@ -55,6 +56,12 @@ open class PhotoVideoActivity : SimpleActivity(), ViewPagerFragment.FragmentList
                 finish()
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // the hosted PhotoFragment no longer resets this on its own, it raced with paging
+        window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
     }
 
     override fun onResume() {

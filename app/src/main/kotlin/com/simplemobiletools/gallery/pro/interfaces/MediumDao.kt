@@ -39,7 +39,7 @@ interface MediumDao {
     fun updateMedium(oldPath: String, newParentPath: String, newFilename: String, newFullPath: String)
 
     @Query("UPDATE OR REPLACE media SET full_path = :newPath, deleted_ts = :deletedTS WHERE full_path = :oldPath COLLATE NOCASE")
-    fun updateDeleted(newPath: String, deletedTS: Long, oldPath: String)
+    fun updateDeleted(newPath: String, deletedTS: Long, oldPath: String): Int
 
     @Query("UPDATE media SET date_taken = :dateTaken WHERE full_path = :path COLLATE NOCASE")
     fun updateFavoriteDateTaken(path: String, dateTaken: Long)

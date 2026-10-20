@@ -241,6 +241,21 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/settings_auto_play_motion_photos_holder"
+                style="@style/SettingsHolderCheckboxStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <com.simplemobiletools.commons.views.MyAppCompatCheckbox
+                    android:id="@+id/settings_auto_play_motion_photos"
+                    style="@style/SettingsCheckboxStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/auto_play_motion_photos" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
                 android:id="@+id/settings_remember_last_video_position_holder"
                 style="@style/SettingsHolderCheckboxStyle"
                 android:layout_width="match_parent"
@@ -877,6 +892,21 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/move_items_into_recycle_bin" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_use_system_recycle_bin_holder"
+                style="@style/SettingsHolderCheckboxStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <com.simplemobiletools.commons.views.MyAppCompatCheckbox
+                    android:id="@+id/settings_use_system_recycle_bin"
+                    style="@style/SettingsCheckboxStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/use_system_recycle_bin" />
 
             </RelativeLayout>
 

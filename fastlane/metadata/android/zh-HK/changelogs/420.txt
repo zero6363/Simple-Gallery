@@ -1,0 +1,5 @@
+• 完整支援 HDR：Ultra HDR、ISO 21496-1 增益圖、HDR10、HLG、Dolby Vision 與 HDR PNG，顯示 HDR 標籤，Android 14+ 可呈現真實 HDR
+• 支援實況照片：可播放 Google、三星及配對影片格式的動態照片，並可自動播放
+• Android 11+ 支援系統資源回收筒：檢視、還原或永久刪除
+• 投影片間隔支援毫秒級設定
+• 更名為簡易相簿2，可與原版共存

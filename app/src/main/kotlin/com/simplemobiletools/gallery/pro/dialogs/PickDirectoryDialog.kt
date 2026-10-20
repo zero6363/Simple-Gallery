@@ -1,6 +1,7 @@
 package com.simplemobiletools.gallery.pro.dialogs
 
 import android.graphics.Color
+import android.os.Environment
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
@@ -169,7 +170,7 @@ class PickDirectoryDialog(
         activity.hideKeyboard(searchEditText)
         FilePickerDialog(
             activity,
-            activity.getDefaultCopyDestinationPath(showHidden, sourcePath),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).absolutePath,
             !isPickingCopyMoveDestination && !isPickingFolderForWidget,
             showHidden,
             true,

@@ -3,6 +3,7 @@ package com.simplemobiletools.gallery.pro.extensions
 import android.annotation.TargetApi
 import android.app.Activity
 import android.content.ContentProviderOperation
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
@@ -44,7 +45,15 @@ import com.simplemobiletools.gallery.pro.dialogs.ResizeMultipleImagesDialog
 import com.simplemobiletools.gallery.pro.dialogs.ResizeWithPathDialog
 import com.simplemobiletools.gallery.pro.helpers.DIRECTORY
 import com.simplemobiletools.gallery.pro.helpers.RECYCLE_BIN
+import com.simplemobiletools.gallery.pro.helpers.SYSTEM_RECYCLE_BIN
+import com.simplemobiletools.gallery.pro.helpers.SystemTrashHelper
+import com.simplemobiletools.gallery.pro.helpers.TYPE_GIFS
+import com.simplemobiletools.gallery.pro.helpers.TYPE_IMAGES
+import com.simplemobiletools.gallery.pro.helpers.TYPE_RAWS
+import com.simplemobiletools.gallery.pro.helpers.TYPE_SVGS
+import com.simplemobiletools.gallery.pro.helpers.TYPE_VIDEOS
 import com.simplemobiletools.gallery.pro.models.DateTaken
+import com.simplemobiletools.gallery.pro.models.Medium
 import com.squareup.picasso.Picasso
 import java.io.*
 import java.text.SimpleDateFormat
@@ -393,7 +402,149 @@ fun BaseSimpleActivity.restoreRecycleBinPath(path: String, callback: () -> Unit)
     restoreRecycleBinPaths(arrayListOf(path), callback)
 }
 
+// tries the system recycle bin (MediaStore trash, Android 11+) first: recycled items stay in place,
+// disappear from every app and get purged by the OS after ~30 days. Falls back to the app internal
+// recycle bin when the files are not in the media store (hidden files, OTG storage and similar).
+// [callback] reports whether the system recycle bin was used, system recycled files are already
+// hidden by the OS, the caller must not delete them afterwards.
+fun BaseSimpleActivity.movePathsToRecycleBin(paths: ArrayList<String>, callback: (usedSystemRecycleBin: Boolean, wasSuccess: Boolean) -> Unit) {
+    if (isRPlus() && config.useSystemRecycleBin) {
+        ensureBackgroundThread {
+            val fileDirItems = paths.map { FileDirItem(it, it.getFilenameFromPath()) } as ArrayList<FileDirItem>
+            val fileUris = getFileUrisFromFileDirItems(fileDirItems)
+            if (fileUris.size == paths.size) {
+                runOnUiThread {
+                    trashSDK30Uris(fileUris, true) { success ->
+                        if (success) {
+                            ensureBackgroundThread {
+                                val deletedTS = System.currentTimeMillis()
+                                paths.forEachIndexed { index, source ->
+                                    // keep the database row at the original path, it drives the recycle bin screen
+                                    if (mediaDB.updateDeleted(source, deletedTS, source) == 0) {
+                                        mediaDB.insert(createRecycledMedium(source, deletedTS, ContentUris.parseId(fileUris[index])))
+                                    }
+                                }
+                                SystemTrashHelper.clearCache()
+                                runOnUiThread {
+                                    callback(true, true)
+                                }
+                            }
+                        } else {
+                            movePathsInRecycleBin(paths) { callback(false, it) }
+                        }
+                    }
+                }
+            } else {
+                movePathsInRecycleBin(paths) { callback(false, it) }
+            }
+        }
+    } else {
+        movePathsInRecycleBin(paths) { callback(false, it) }
+    }
+}
+
+// minimal database row for a file that was system recycled without ever being scanned into the media database
+private fun createRecycledMedium(path: String, deletedTS: Long, mediaStoreId: Long): Medium {
+    val file = File(path)
+    val type = when {
+        path.isVideoFast() -> TYPE_VIDEOS
+        path.isImageFast() -> TYPE_IMAGES
+        path.isGif() -> TYPE_GIFS
+        path.isRawFast() -> TYPE_RAWS
+        path.isSvg() -> TYPE_SVGS
+        else -> TYPE_IMAGES
+    }
+
+    return Medium(null, file.name, path, file.parent ?: "", file.lastModified(), file.lastModified(), file.length(), type, 0, false, deletedTS, mediaStoreId)
+}
+
+private fun BaseSimpleActivity.restoreSystemRecycledPaths(paths: ArrayList<String>, callback: () -> Unit) {
+    if (paths.isEmpty()) {
+        runOnUiThread {
+            callback()
+        }
+        return
+    }
+
+    ensureBackgroundThread {
+        // regular media store lookups cannot see trashed rows, take the uris from the trash query
+        val fileUris = paths.mapNotNull { SystemTrashHelper.lookupUri(this, it) }
+        if (fileUris.isEmpty()) {
+            runOnUiThread {
+                callback()
+            }
+            return@ensureBackgroundThread
+        }
+
+        runOnUiThread {
+            trashSDK30Uris(fileUris, false) { success ->
+                ensureBackgroundThread {
+                    if (success) {
+                        // the OS renames the file back on untrash, the row is re-added by the regular folder scan
+                        paths.forEach { mediaDB.deleteMediumPath(it) }
+                        SystemTrashHelper.clearCache()
+                    }
+                    runOnUiThread {
+                        callback()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// permanently deletes files that are currently recycled at the system level, called at deleting
+// from the recycle bin screen
+fun BaseSimpleActivity.deleteSystemRecycledPaths(paths: ArrayList<String>, callback: (wasSuccess: Boolean) -> Unit) {
+    ensureBackgroundThread {
+        val fileUris = paths.mapNotNull { SystemTrashHelper.lookupUri(this, it) }
+        if (fileUris.isEmpty()) {
+            runOnUiThread {
+                callback(false)
+            }
+            return@ensureBackgroundThread
+        }
+
+        runOnUiThread {
+            deleteSDK30Uris(fileUris) { success ->
+                ensureBackgroundThread {
+                    if (success) {
+                        paths.forEach { deleteDBPath(it) }
+                        SystemTrashHelper.clearCache()
+                    }
+                    runOnUiThread {
+                        callback(success)
+                    }
+                }
+            }
+        }
+    }
+}
+
 fun BaseSimpleActivity.restoreRecycleBinPaths(paths: ArrayList<String>, callback: () -> Unit) {
+    ensureBackgroundThread {
+        val systemPaths = if (isRPlus()) {
+            paths.filter { !it.startsWith(recycleBinPath) } as ArrayList<String>
+        } else {
+            ArrayList()
+        }
+        val binPaths = paths.filter { !systemPaths.contains(it) } as ArrayList<String>
+
+        // system recycled files are un-trashed through the system first, the app recycled ones are copied back after it
+        restoreSystemRecycledPaths(systemPaths) {
+            restorePathsFromAppRecycleBin(binPaths, callback)
+        }
+    }
+}
+
+private fun BaseSimpleActivity.restorePathsFromAppRecycleBin(paths: ArrayList<String>, callback: () -> Unit) {
+    if (paths.isEmpty()) {
+        runOnUiThread {
+            callback()
+        }
+        return
+    }
+
     ensureBackgroundThread {
         val newPaths = ArrayList<String>()
         var shownRestoringToPictures = false
@@ -475,10 +626,51 @@ fun BaseSimpleActivity.emptyTheRecycleBin(callback: (() -> Unit)? = null) {
     ensureBackgroundThread {
         try {
             recycleBin.deleteRecursively()
-            mediaDB.clearRecycleBin()
             directoryDB.deleteRecycleBin()
-            toast(com.simplemobiletools.commons.R.string.recycle_bin_emptied)
-            callback?.invoke()
+
+            // system recycled items (Android 11+) are deleted through the system delete request,
+            // the database rows are cleared only after it succeeded, so a denial keeps them listed
+            val systemRecycled = if (isRPlus()) {
+                mediaDB.getDeletedMedia().filter { !it.path.startsWith(RECYCLE_BIN) }
+            } else {
+                emptyList()
+            }
+
+            val fileUris = systemRecycled.mapNotNull { medium ->
+                SystemTrashHelper.lookupUri(this, medium.path)
+                    ?: if (medium.mediaStoreId == 0L) null else ContentUris.withAppendedId(getFileUri(medium.path), medium.mediaStoreId)
+            }.toMutableList()
+
+            // also purge items recycled at the system level by other apps, those are not in our database
+            val dbPaths = systemRecycled.map { it.path.lowercase() }
+            if (isRPlus()) {
+                SystemTrashHelper.getTrashedItemList(this).forEach { item ->
+                    if (item.diskPath.lowercase() !in dbPaths) {
+                        fileUris.add(item.uri)
+                    }
+                }
+            }
+
+            if (fileUris.isEmpty()) {
+                mediaDB.clearRecycleBin()
+                SystemTrashHelper.clearCache()
+                toast(com.simplemobiletools.commons.R.string.recycle_bin_emptied)
+                callback?.invoke()
+                return@ensureBackgroundThread
+            }
+
+            runOnUiThread {
+                deleteSDK30Uris(fileUris) { success ->
+                    ensureBackgroundThread {
+                        if (success) {
+                            mediaDB.clearRecycleBin()
+                            SystemTrashHelper.clearCache()
+                        }
+                        toast(com.simplemobiletools.commons.R.string.recycle_bin_emptied)
+                        callback?.invoke()
+                    }
+                }
+            }
         } catch (e: Exception) {
             toast(com.simplemobiletools.commons.R.string.unknown_error_occurred)
         }
@@ -943,6 +1135,13 @@ fun Activity.handleExcludedFolderPasswordProtection(callback: () -> Unit) {
 fun Activity.openRecycleBin() {
     Intent(this, MediaActivity::class.java).apply {
         putExtra(DIRECTORY, RECYCLE_BIN)
+        startActivity(this)
+    }
+}
+
+fun Activity.openSystemRecycleBin() {
+    Intent(this, MediaActivity::class.java).apply {
+        putExtra(DIRECTORY, SYSTEM_RECYCLE_BIN)
         startActivity(this)
     }
 }

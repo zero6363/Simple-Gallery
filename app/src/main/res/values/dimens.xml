@@ -8,6 +8,9 @@
     <dimen name="selection_check_size">26dp</dimen>
     <dimen name="drag_handle_size">34dp</dimen>
     <dimen name="play_outline_size_big">96dp</dimen>
+    <dimen name="motion_photo_icon_size">36dp</dimen>
+    <dimen name="motion_photo_badge_size">24dp</dimen>
+    <dimen name="motion_photo_badge_size_big">40dp</dimen>
     <dimen name="tmb_shadow_height">70dp</dimen>
     <dimen name="media_side_slider_width">60dp</dimen>
     <dimen name="video_player_play_pause_size">60dp</dimen>

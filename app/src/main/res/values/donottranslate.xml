@@ -3,6 +3,7 @@
     <string name="gif">GIF</string>
     <string name="raw">RAW</string>
     <string name="svg">SVG</string>
+    <string name="live_photo_short">LIVE</string>
     <string name="package_name">com.simplemobiletools.gallery.pro</string>
 
     <!-- Release notes -->

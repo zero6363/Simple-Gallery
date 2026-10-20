@@ -357,6 +357,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 findItem(R.id.column_count).isVisible = config.viewTypeFolders == VIEW_TYPE_GRID
                 findItem(R.id.set_as_default_folder).isVisible = !config.defaultFolder.isEmpty()
                 findItem(R.id.open_recycle_bin).isVisible = config.useRecycleBin && !config.showRecycleBinAtFolders
+                findItem(R.id.open_system_recycle_bin).isVisible = isRPlus()
                 findItem(R.id.more_apps_from_us).isVisible = !resources.getBoolean(com.simplemobiletools.commons.R.bool.hide_google_relations)
             }
         }
@@ -406,6 +407,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 R.id.stop_showing_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.create_new_folder -> createNewFolder()
                 R.id.open_recycle_bin -> openRecycleBin()
+                R.id.open_system_recycle_bin -> openSystemRecycleBin()
                 R.id.column_count -> changeColumnCount()
                 R.id.set_as_default_folder -> setAsDefaultFolder()
                 R.id.more_apps_from_us -> launchMoreAppsFromUsIntent()
@@ -1407,12 +1409,20 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             Handler().postDelayed({
                 ensureBackgroundThread {
                     try {
+                        // only the app recycled files are purged physically, system recycled ones (original
+                        // paths in the database) are purged by the OS itself
                         val filesToDelete = mediaDB.getOldRecycleBinItems(System.currentTimeMillis() - MONTH_MILLISECONDS)
+                            .filter { it.path.startsWith(RECYCLE_BIN) }
                         filesToDelete.forEach {
                             if (File(it.path.replaceFirst(RECYCLE_BIN, recycleBinPath)).delete()) {
                                 mediaDB.deleteMediumPath(it.path)
                             }
                         }
+
+                        // drop database rows of system recycled items the OS already purged or restored elsewhere
+                        mediaDB.getDeletedMedia()
+                            .filter { !it.path.startsWith(RECYCLE_BIN) && !SystemTrashHelper.isTrashed(this, it.path) }
+                            .forEach { mediaDB.deleteMediumPath(it.path) }
                     } catch (e: Exception) {
                     }
                 }

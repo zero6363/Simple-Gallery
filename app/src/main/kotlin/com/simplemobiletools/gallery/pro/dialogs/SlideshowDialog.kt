@@ -21,7 +21,7 @@ class SlideshowDialog(val activity: BaseSimpleActivity, val callback: () -> Unit
 
     init {
         binding = DialogSlideshowBinding.inflate(activity.layoutInflater).apply {
-            intervalHint.hint = activity.getString(com.simplemobiletools.commons.R.string.seconds_raw).replaceFirstChar { it.uppercaseChar() }
+            intervalHint.hint = activity.getString(R.string.milliseconds_raw).replaceFirstChar { it.uppercaseChar() }
             intervalValue.setOnClickListener {
                 intervalValue.selectAll()
             }
@@ -100,13 +100,12 @@ class SlideshowDialog(val activity: BaseSimpleActivity, val callback: () -> Unit
     }
 
     private fun storeValues() {
-        var interval = binding.intervalValue.text.toString()
-        if (interval.trim('0').isEmpty())
-            interval = SLIDESHOW_DEFAULT_INTERVAL.toString()
+        val interval = binding.intervalValue.text.toString().toIntOrNull()
+            ?.takeIf { it > 0 } ?: SLIDESHOW_DEFAULT_INTERVAL
 
         activity.config.apply {
             slideshowAnimation = getAnimationValue(binding.animationValue.value)
-            slideshowInterval = interval.toInt()
+            slideshowInterval = interval
             slideshowIncludeVideos = binding.includeVideos.isChecked
             slideshowIncludeGIFs = binding.includeGifs.isChecked
             slideshowRandomOrder = binding.randomOrder.isChecked

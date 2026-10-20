@@ -9,6 +9,7 @@ import android.os.Looper
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
+import android.widget.RelativeLayout
 import android.widget.Toast
 import androidx.core.view.allViews
 import com.bumptech.glide.Glide
@@ -140,7 +141,9 @@ class MediaAdapter(
             findItem(R.id.cab_set_as).isVisible = isOneItemSelected
             findItem(R.id.cab_resize).isVisible = canResize(selectedItems)
             findItem(R.id.cab_confirm_selection).isVisible = isAGetIntent && allowMultiplePicks && selectedKeys.isNotEmpty()
-            findItem(R.id.cab_restore_recycle_bin_files).isVisible = selectedPaths.all { it.startsWith(activity.recycleBinPath) }
+            findItem(R.id.cab_restore_recycle_bin_files).isVisible = selectedPaths.all {
+                it.startsWith(activity.recycleBinPath) || SystemTrashHelper.getCachedIsTrashed(it)
+            }
             findItem(R.id.cab_create_shortcut).isVisible = isOreoPlus() && isOneItemSelected
 
             checkHideBtnVisibility(this, selectedItems)
@@ -659,6 +662,42 @@ class MediaAdapter(
                 mediaItemHolder.isSelected = isSelected
             }
 
+            motionPhotoBadge?.beGone()
+            if (medium.isImage()) {
+                if (MotionPhotoHelper.getCachedIsMotionPhoto(medium.path)) {
+                    motionPhotoBadge?.beVisible()
+                } else {
+                    // detection requires reading some bytes from the file, do it lazily and only once per path
+                    MotionPhotoHelper.detectMotionPhotoAsync(activity.applicationContext, medium.path) { isMotionPhoto ->
+                        activity.runOnUiThread {
+                            if (isMotionPhoto && mediumName.tag == medium.path) {
+                                bindItem(view, medium).motionPhotoBadge?.beVisible()
+                                positionHdrBadge(bindItem(view, medium))
+                            }
+                        }
+                    }
+                }
+            }
+
+            hdrBadge?.beGone()
+            if (medium.isImage()) {
+                if (HdrHelper.getCachedIsHdr(medium.path)) {
+                    hdrBadge?.beVisible()
+                    positionHdrBadge(bindItem(view, medium))
+                } else {
+                    // detection requires reading some bytes from the file, do it lazily and only once per path
+                    HdrHelper.detectHdrAsync(activity.applicationContext, medium.path) { isHdr ->
+                        activity.runOnUiThread {
+                            if (isHdr && mediumName.tag == medium.path) {
+                                val binding = bindItem(view, medium)
+                                binding.hdrBadge?.beVisible()
+                                positionHdrBadge(binding)
+                            }
+                        }
+                    }
+                }
+            }
+
             var path = medium.path
             if (hasOTGConnected && root.context.isPathOnOTG(path)) {
                 path = path.getOTGPublicPath(root.context)
@@ -700,6 +739,28 @@ class MediaAdapter(
             thumbnailSection.text = section.title
             thumbnailSection.setTextColor(textColor)
         }
+    }
+
+    // shift the HDR badge right of whatever else sits in the top left corner: the live photo badge
+    // on photo layouts, or the portrait photo outline on the layouts that portrait photos reuse
+    private fun positionHdrBadge(binding: MediaItemBinding) {
+        val badge = binding.hdrBadge ?: return
+        if (!badge.isVisible()) {
+            return
+        }
+
+        val smallMargin = badge.resources.getDimensionPixelSize(com.simplemobiletools.commons.R.dimen.small_margin)
+        val layoutParams = badge.layoutParams as RelativeLayout.LayoutParams
+        layoutParams.marginStart = when {
+            binding.motionPhotoBadge?.isVisible() == true -> {
+                badge.resources.getDimensionPixelSize(R.dimen.motion_photo_badge_size) + smallMargin * 2
+            }
+            binding.playPortraitOutline?.isVisible() == true -> {
+                badge.resources.getDimensionPixelSize(R.dimen.selection_check_size) + smallMargin * 2
+            }
+            else -> smallMargin
+        }
+        badge.layoutParams = layoutParams
     }
 
     override fun onChange(position: Int): String {

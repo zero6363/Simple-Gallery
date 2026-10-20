@@ -19,12 +19,15 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     compileSdk = project.libs.versions.app.build.compileSDKVersion.get().toInt()
+    // pin the build tools shipped in .tool/android-sdk
+    buildToolsVersion = "34.0.0"
 
     defaultConfig {
         applicationId = libs.versions.app.version.appId.get()
         minSdk = project.libs.versions.app.build.minimumSDK.get().toInt()
         targetSdk = project.libs.versions.app.build.targetSDK.get().toInt()
-        versionName = project.libs.versions.app.version.versionName.get()
+        // append the versionCode so the app's about screen matches the APK filename (gallery-413 etc.)
+        versionName = "${project.libs.versions.app.version.versionName.get()} (${project.libs.versions.app.version.versionCode.get()})"
         versionCode = project.libs.versions.app.version.versionCode.get().toInt()
         setProperty("archivesBaseName", "gallery-$versionCode")
     }
@@ -49,6 +52,10 @@ android {
         debug {
             // we cannot change the original package name, else PhotoEditorSDK won't work
             //applicationIdSuffix = ".debug"
+            // sign debug builds with the same key as release, so both variants can install over each other
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             isMinifyEnabled = true
@@ -86,7 +93,9 @@ android {
         kotlinOptions.jvmTarget = project.libs.versions.app.build.kotlinJVMTarget.get()
     }
 
-    namespace = libs.versions.app.version.appId.get()
+    // the code package must stay com.simplemobiletools.gallery.pro (R class / BuildConfig / manifest),
+    // only the applicationId changes so this build installs alongside the original app
+    namespace = "com.simplemobiletools.gallery.pro"
 
     lint {
         checkReleaseBuilds = false
@@ -128,6 +137,23 @@ dependencies {
 
     implementation(libs.bundles.room)
     ksp(libs.androidx.room.compiler)
+}
+
+// The local Simple-Commons checkout (see settings.gradle.kts) is compiled with Kotlin 1.9.10,
+// whose transitive runtime jars cannot be dexed by the D8 shipped with AGP 7.4.0.
+// Align them with the Kotlin version this app builds with.
+configurations.all {
+    resolutionStrategy {
+        force(
+            "org.jetbrains.kotlin:kotlin-stdlib:1.8.22",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22",
+            "org.jetbrains.kotlin:kotlin-parcelize-runtime:1.8.22",
+            "org.jetbrains.kotlin:kotlin-android-extensions-runtime:1.8.22",
+            "org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.5",
+            "org.jetbrains.kotlinx:kotlinx-collections-immutable-jvm:0.3.5",
+        )
+    }
 }
 
 // Apply the PESDKPlugin
